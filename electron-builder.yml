@@ -1,0 +1,36 @@
+appId: com.flux.text-editor
+productName: Flux
+# 打包图标（相对 buildResources）；electron-builder 由 PNG 生成各平台安装包图标
+icon: icon.png
+directories:
+  buildResources: resources
+  output: release
+
+files:
+  - out/**/*
+  - package.json
+
+asar: true
+asarUnpack:
+  - "**/*.node"
+  # 预留：Agent SDK 的 cli.js 如果打包后找不到，在这里解包
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]

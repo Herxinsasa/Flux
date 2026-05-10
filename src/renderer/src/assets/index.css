@@ -1,0 +1,17 @@
+@import "tailwindcss";
+@import "../styles/theme.css";
+
+/* Global reset */
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-app, 14px);
+  line-height: 1.5;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}

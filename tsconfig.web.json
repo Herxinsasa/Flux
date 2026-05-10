@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "target": "ESNext",
+    "outDir": "./out",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"]  },
+  "include": [
+    "src/renderer/src/**/*",
+    "src/renderer/src/**/*.d.ts",
+    "src/shared/**/*"
+  ]
+}

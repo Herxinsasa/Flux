@@ -1,0 +1,184 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "type": "anthropic",
+      "baseUrl": "https://api.anthropic.com",
+      "defaultModel": "claude-opus-4-7",
+      "models": [
+        {
+          "id": "claude-opus-4-7",
+          "label": "Claude Opus 4.7",
+          "status": "active"
+        },
+        {
+          "id": "claude-sonnet-4-6",
+          "label": "Claude Sonnet 4.6",
+          "status": "active"
+        },
+        {
+          "id": "claude-haiku-4-5",
+          "label": "Claude Haiku 4.5",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "type": "openai_compat",
+      "baseUrl": "",
+      "defaultModel": "gpt-5.5",
+      "models": [
+        {
+          "id": "gpt-5.5",
+          "label": "GPT 5.5",
+          "status": "active"
+        },
+        {
+          "id": "gpt-4.1",
+          "label": "GPT 4.1",
+          "status": "active"
+        },
+        {
+          "id": "gpt-4o",
+          "label": "GPT 4o",
+          "status": "active"
+        },
+        {
+          "id": "gpt-4o-mini",
+          "label": "GPT 4o mini",
+          "status": "active"
+        },
+        {
+          "id": "o4-mini",
+          "label": "o4 mini",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "type": "openai_compat",
+      "baseUrl": "https://api.deepseek.com",
+      "defaultModel": "deepseek-v4-flash",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek V4 Flash",
+          "status": "active"
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek V4 Pro",
+          "status": "active"
+        },
+        {
+          "id": "deepseek-chat",
+          "label": "DeepSeek Chat",
+          "status": "active"
+        },
+        {
+          "id": "deepseek-reasoner",
+          "label": "DeepSeek Reasoner",
+          "status": "active"
+        },
+        {
+          "id": "deepseek-coder",
+          "label": "DeepSeek Coder",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "kimi",
+      "label": "Kimi",
+      "type": "openai_compat",
+      "baseUrl": "https://api.moonshot.cn",
+      "defaultModel": "kimi-k2-turbo",
+      "models": [
+        {
+          "id": "kimi-k2-turbo",
+          "label": "Kimi K2 Turbo",
+          "status": "active"
+        },
+        {
+          "id": "moonshot-v1-128k",
+          "label": "Moonshot v1 128k",
+          "status": "active"
+        },
+        {
+          "id": "moonshot-v1-32k",
+          "label": "Moonshot v1 32k",
+          "status": "active"
+        },
+        {
+          "id": "moonshot-v1-8k",
+          "label": "Moonshot v1 8k",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "glm",
+      "label": "GLM",
+      "type": "openai_compat",
+      "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+      "defaultModel": "glm-4.6",
+      "models": [
+        {
+          "id": "glm-4.6",
+          "label": "GLM 4.6",
+          "status": "active"
+        },
+        {
+          "id": "glm-4-plus",
+          "label": "GLM 4 Plus",
+          "status": "active"
+        },
+        {
+          "id": "glm-4-flash",
+          "label": "GLM 4 Flash",
+          "status": "active"
+        },
+        {
+          "id": "glm-4-air",
+          "label": "GLM 4 Air",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "id": "qwen",
+      "label": "Qwen",
+      "type": "openai_compat",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "defaultModel": "qwen-plus",
+      "models": [
+        {
+          "id": "qwen3-max",
+          "label": "Qwen3 Max",
+          "status": "active"
+        },
+        {
+          "id": "qwen-plus",
+          "label": "Qwen Plus",
+          "status": "active"
+        },
+        {
+          "id": "qwen-turbo",
+          "label": "Qwen Turbo",
+          "status": "active"
+        },
+        {
+          "id": "qwen-long",
+          "label": "Qwen Long",
+          "status": "active"
+        }
+      ]
+    }
+  ]
+}

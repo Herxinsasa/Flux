@@ -1,0 +1,2005 @@
+/* Flux Theme System — CSS Custom Properties */
+/* Source: Pencil prototypes.pen design variables */
+
+:root {
+  /* 字号阶梯 — 全应用统一引用，避免界面之间大小不一 */
+  --font-size-app: 14px;
+  --font-size-app-sm: 13px;
+  --font-size-app-xs: 12px;
+  --font-size-app-lg: 15px;
+  --font-size-app-title: 16px;
+
+  /* Dark theme (default) — tokens from prototypes.pen variables */
+  --bg-primary: #1C1C1E;
+  --bg-panel: #1A1A1C;
+  --bg-card: #2C2C2E;
+  --bg-viewer: #242426;
+
+  --border-subtle: #ffffff10;
+  --border-visible: #ffffff1a;
+
+  --text-primary: #FFFFFF;
+  --text-secondary: #D4D4D4;
+  --text-tertiary: #A0A0A0;
+  --text-hint: #757575;
+
+  --accent: #0A84FF;
+  --accent-hover: #8CC8FF;
+
+  --success: #6EC98D;
+  --warning: #ECD58A;
+  --error: #E8837A;
+  --fatal: #E87A8A;
+  --log-info: #7EC8E3;
+  --log-debug: #A8A8AD;
+
+  --selection: #ffffff14;
+  --hover: #ffffff08;
+
+  --font-ui: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --transition-fast: 150ms ease-out;
+
+  /* CodeMirror 语法着色（暗色，本地化变量；仅源码编辑器使用，非 MD 预览） */
+  --cm-keyword: #c586c0;
+  --cm-preprocessor: #c586c0;
+  --cm-type: #4ec9b0;
+  --cm-class: #4ec9b0;
+  --cm-function: #dcdcaa;
+  --cm-variable: #9cdcfe;
+  --cm-property: #9cdcfe;
+  --cm-meta: #808080;
+  --cm-comment: #6a9955;
+  --cm-string: #ce9178;
+  --cm-number: #b5cea8;
+  --cm-regexp: #d16969;
+  --cm-operator: #cccccc;
+  --cm-punctuation: #d4d4d4;
+  --cm-bracket: #ffd700;
+  --cm-tag: #569cd6;
+  --cm-attribute: #92c5f8;
+  --cm-heading: #569cd6;
+  --cm-link: #3794ff;
+  --cm-invalid: #f14c4c;
+}
+
+/* ------------------------------------------------------------------ */
+/*  CodeMirror 6 Style Overrides — Dark Theme (match Flux variables)  */
+/* ------------------------------------------------------------------ */
+
+.cm-editor {
+  background: var(--bg-viewer) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-mono);
+  font-size: 1em;
+  line-height: 1.5;
+}
+.cm-editor .cm-gutters {
+  background: var(--bg-viewer) !important;
+  color: var(--text-tertiary) !important;
+  border-right: 1px solid var(--border-subtle) !important;
+}
+.cm-editor .cm-activeLineGutter {
+  background: var(--bg-card) !important;
+}
+.cm-editor .cm-activeLine {
+  background: var(--selection) !important;
+}
+.cm-editor .cm-selectionMatch {
+  background: rgba(10, 132, 255, 0.2) !important;
+}
+.cm-editor .cm-cursor {
+  border-left-color: var(--accent) !important;
+}
+
+/* .log 文件在统一编辑器里的行级颜色（仅改变颜色，不改排版） */
+.cm-editor .cm-log-level-fatal {
+  color: var(--fatal);
+}
+
+.cm-editor .cm-log-level-error {
+  color: var(--error);
+}
+
+.cm-editor .cm-log-level-warning {
+  color: var(--warning);
+}
+
+.cm-editor .cm-log-level-info {
+  color: var(--log-info);
+}
+
+.cm-editor .cm-log-level-debug {
+  color: var(--log-debug);
+}
+
+.cm-editor .cm-selectionBackground {
+  /* 提高选中文本与背景的对比度（暗色主题尤其明显） */
+  background: color-mix(in srgb, var(--accent) 38%, rgba(128, 128, 128, 0.25)) !important;
+}
+.cm-editor .cm-searchMatch {
+  background: rgba(236, 213, 138, 0.25) !important;
+}
+.cm-editor .cm-searchMatch-selected {
+  background: rgba(236, 213, 138, 0.45) !important;
+}
+
+/* ------------------------------------------------------------------ */
+/*  CodeMirror 6 Style Overrides — Light Theme                         */
+/* ------------------------------------------------------------------ */
+
+[data-theme='light'] .cm-editor .cm-activeLine {
+  background: var(--selection) !important;
+}
+[data-theme='light'] .cm-editor .cm-selectionMatch {
+  background: rgba(10, 132, 255, 0.15) !important;
+}
+[data-theme='light'] .cm-editor .cm-selectionBackground {
+  background: color-mix(in srgb, var(--accent) 28%, rgba(0, 0, 0, 0.12)) !important;
+}
+[data-theme='light'] .cm-editor .cm-searchMatch {
+  background: rgba(236, 213, 138, 0.35) !important;
+}
+[data-theme='light'] .cm-editor .cm-searchMatch-selected {
+  background: rgba(236, 213, 138, 0.6) !important;
+}
+
+/* CodeMirror 滚动条 — 与主题一致（仅纵向为主，横向极细） */
+.cm-editor .cm-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-visible) transparent;
+}
+.cm-editor .cm-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.cm-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: var(--border-visible);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--border-visible) 80%, var(--text-tertiary));
+  background-clip: padding-box;
+}
+
+/* 通用主题化滚动条：侧栏、设置、Markdown、大纲、工具卡片等统一使用 .flux-scroll 或 .flux-themed-scroll（别名） */
+.flux-themed-scroll,
+.flux-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-visible) var(--bg-card);
+}
+.flux-themed-scroll::-webkit-scrollbar,
+.flux-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.flux-themed-scroll::-webkit-scrollbar-track,
+.flux-scroll::-webkit-scrollbar-track {
+  background: var(--bg-card);
+}
+.flux-themed-scroll::-webkit-scrollbar-thumb,
+.flux-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-visible);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.flux-themed-scroll::-webkit-scrollbar-thumb:hover,
+.flux-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--border-visible) 75%, var(--text-tertiary));
+  background-clip: padding-box;
+}
+
+/* 轨道与 --bg-panel 一致（侧栏分区、Markdown 大纲等） */
+.flux-scroll.flux-scroll--panel {
+  scrollbar-color: var(--border-visible) var(--bg-panel);
+}
+.flux-scroll.flux-scroll--panel::-webkit-scrollbar-track {
+  background: var(--bg-panel);
+}
+
+/* 设置页：浅色下加强分区描边（仅 .flux-settings-surface 内） */
+.flux-settings-surface {
+  --settings-stroke: var(--border-visible);
+}
+[data-theme='light'] .flux-settings-surface {
+  --settings-stroke: #aeb8c1;
+}
+[data-theme='light'] .flux-settings-surface .flux-dropdown-trigger {
+  border-color: var(--settings-stroke) !important;
+}
+[data-theme='light'] .flux-settings-surface .context-menu {
+  border-color: var(--settings-stroke) !important;
+}
+
+/* react-virtuoso 滚动区域（对话、日志等） */
+[data-virtuoso-scroller='true'] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-visible) var(--bg-panel);
+}
+[data-virtuoso-scroller='true']::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+[data-virtuoso-scroller='true']::-webkit-scrollbar-track {
+  background: var(--bg-panel);
+}
+[data-virtuoso-scroller='true']::-webkit-scrollbar-thumb {
+  background: var(--border-visible);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+[data-virtuoso-scroller='true']::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--border-visible) 75%, var(--text-tertiary));
+  background-clip: padding-box;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Light Theme Variables                                              */
+/* ------------------------------------------------------------------ */
+
+/* 浅色：参考 Typora GitHub / GitHub 界面 — 白底 + 略深灰分区，避免面板灰「发飘」 */
+[data-theme='light'] {
+  --bg-primary: #ffffff;
+  --bg-panel: #f6f8fa;
+  --bg-card: #ffffff;
+  --bg-viewer: #fafbfc;
+
+  --border-subtle: #d0d7de66;
+  --border-visible: #d0d7de;
+
+  --text-primary: #24292f;
+  --text-secondary: #57606a;
+  --text-tertiary: #6e7781;
+  --text-hint: #8c959f;
+
+  --accent: #0969da;
+  --accent-hover: #0550ae;
+
+  --success: #1a7f37;
+  --warning: #9a6700;
+  --error: #cf222e;
+  --fatal: #a40e26;
+  --log-info: #0969da;
+  --log-debug: #6e7781;
+
+  --selection: #0969da22;
+  --hover: #d0d7de33;
+
+  /* CodeMirror 语法着色（浅色） */
+  --cm-keyword: #cf222e;
+  --cm-preprocessor: #953800;
+  --cm-type: #953800;
+  --cm-class: #953800;
+  --cm-function: #8250df;
+  --cm-variable: #0550ae;
+  --cm-property: #0550ae;
+  --cm-meta: #6e7781;
+  --cm-comment: #116329;
+  --cm-string: #0a3069;
+  --cm-number: #0550ae;
+  --cm-regexp: #116329;
+  --cm-operator: #24292f;
+  --cm-punctuation: #24292f;
+  --cm-bracket: #953800;
+  --cm-tag: #116329;
+  --cm-attribute: #0550ae;
+  --cm-heading: #0550ae;
+  --cm-link: #0969da;
+  --cm-invalid: #cf222e;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Context Menu                                                        */
+/* ------------------------------------------------------------------ */
+
+.context-menu {
+  background: var(--bg-card);
+  border: 1px solid var(--border-visible);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  min-width: 160px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.context-menu-item {
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.context-menu-item:hover {
+  background: var(--hover);
+}
+
+[data-theme='light'] .context-menu-item:hover {
+  background: var(--hover);
+}
+
+.context-menu-separator {
+  height: 1px;
+  margin: 3px 8px;
+  background: var(--border-subtle);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Context Menu Toast (error feedback)                                 */
+/* ------------------------------------------------------------------ */
+
+.context-menu-toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 4px 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: rgba(255, 69, 58, 0.15);
+  border: 1px solid rgba(255, 69, 58, 0.3);
+  max-width: 320px;
+  word-break: break-word;
+}
+
+.context-menu-toast-text {
+  font-size: 12px;
+  color: var(--error);
+  line-height: 1.4;
+}
+
+.context-menu-toast-dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--error);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.context-menu-toast-dismiss:hover {
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Log Viewer                                                         */
+/* ------------------------------------------------------------------ */
+
+.log-viewer-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-viewer);
+}
+
+.log-viewer-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+.log-line:hover {
+  background: var(--hover);
+}
+
+[data-theme='light'] .log-line:hover {
+  background: var(--hover);
+}
+
+/* Fatal / Critical log lines — subtle left border accent */
+.log-line[data-level='fatal'],
+.log-line[data-level='error'] {
+  border-left: 3px solid transparent;
+}
+
+.log-line[data-level='fatal']:hover {
+  border-left-color: var(--fatal);
+}
+
+.log-line[data-level='error']:hover {
+  border-left-color: var(--error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Settings — matches Pencil kcjFC                                      */
+/* ------------------------------------------------------------------ */
+
+.settings-label {
+  display: block;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.settings-card-input {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-secondary);
+  border: none;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Badge                                                               */
+/* ------------------------------------------------------------------ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-app-xs);
+  font-weight: 400;
+  background: transparent;
+  color: var(--text-tertiary);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Markdown Preview                                                    */
+/* ------------------------------------------------------------------ */
+
+.markdown-preview-container {
+  height: 100%;
+  overflow: hidden;
+}
+
+.markdown-preview {
+  padding: 16px 24px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  /* 纵向滚动条样式见 .flux-scroll（在 MdPreview 中与此类并用） */
+}
+
+.markdown-preview--static {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.markdown-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.markdown-preview-empty-text {
+  color: var(--text-hint);
+  font-size: 14px;
+  user-select: none;
+}
+
+/* 预览区背景为 viewer，滚动条轨道与内容区一致 */
+.markdown-preview.flux-scroll {
+  scrollbar-color: var(--border-visible) var(--bg-viewer);
+}
+.markdown-preview.flux-scroll::-webkit-scrollbar-track {
+  background: var(--bg-viewer);
+}
+
+.markdown-preview h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 24px 0 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 8px;
+}
+
+.markdown-preview h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 20px 0 12px;
+}
+
+.markdown-preview h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 16px 0 8px;
+}
+
+.markdown-preview h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+}
+
+.markdown-preview p {
+  margin: 8px 0;
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.markdown-preview ul {
+  list-style-type: disc;
+  list-style-position: outside;
+}
+
+.markdown-preview ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+
+.markdown-preview ul ul {
+  list-style-type: circle;
+}
+
+.markdown-preview ul ul ul {
+  list-style-type: square;
+}
+
+.markdown-preview li {
+  margin: 4px 0;
+}
+
+.markdown-preview a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.markdown-preview a:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.markdown-preview code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--bg-card);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.markdown-preview pre {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  overflow-x: hidden;
+  margin: 12px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.markdown-preview pre code {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.markdown-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 100%;
+  margin: 12px 0;
+  table-layout: fixed;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  border: 1px solid var(--border-subtle);
+  padding: 8px 12px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.markdown-preview th {
+  background: var(--bg-card);
+  font-weight: 600;
+}
+
+.markdown-preview blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  color: var(--text-secondary);
+  margin: 16px 0;
+}
+
+.markdown-preview img {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.markdown-preview hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 24px 0;
+}
+
+/* Highlight.js overrides — keep within Flux theme */
+.markdown-preview pre code.hljs {
+  color: var(--text-primary);
+}
+
+[data-theme='light'] .markdown-preview th {
+  background: var(--bg-card);
+}
+
+[data-theme='light'] .markdown-preview pre code.hljs {
+  color: var(--text-primary);
+}
+
+/* Skill 管理：正文以 Markdown 预览展示，撑满剩余区域 */
+.skill-markdown-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+}
+.skill-markdown-preview .markdown-preview-container {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.skill-markdown-preview .markdown-preview {
+  min-height: 100%;
+}
+
+/* 查找条：与设计稿一致的控制钮（默认即浅灰底） */
+.search-bar-ctrl {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    opacity var(--transition-fast);
+}
+.search-bar-ctrl:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--hover) 70%, var(--border-visible));
+  color: var(--text-primary);
+}
+.search-bar-ctrl:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ─── CodeMirror 搜索框样式 — 顶部固定 + 中文优化 ─── */
+.cm-searchDialog {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 10 !important;
+  background: linear-gradient(to bottom, var(--bg-panel), var(--bg-card)) !important;
+  border-bottom: 2px solid var(--accent) !important;
+  border-radius: 0 !important;
+  padding: 12px 14px !important;
+  font-family: var(--font-ui) !important;
+  font-size: var(--font-size-app-sm) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25) !important;
+  flex-wrap: wrap !important;
+}
+
+.cm-searchDialog input {
+  background: var(--bg-viewer) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-visible) !important;
+  border-radius: 6px !important;
+  padding: 7px 11px !important;
+  font-family: var(--font-mono) !important;
+  font-size: var(--font-size-app-xs) !important;
+  transition: all var(--transition-fast) !important;
+  min-width: 200px !important;
+  caret-color: var(--accent) !important;
+}
+
+.cm-searchDialog input::placeholder {
+  color: var(--text-hint) !important;
+}
+
+.cm-searchDialog input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.1) !important;
+  outline: none !important;
+  background: var(--bg-viewer) !important;
+}
+
+.cm-searchDialog button {
+  background: transparent !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 5px !important;
+  padding: 5px 10px !important;
+  font-size: var(--font-size-app-xs) !important;
+  font-family: var(--font-ui) !important;
+  cursor: pointer !important;
+  transition: all var(--transition-fast) !important;
+  white-space: nowrap !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.cm-searchDialog button:hover:not(:disabled) {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 2px 8px rgba(10, 132, 255, 0.25) !important;
+}
+
+.cm-searchDialog button:active:not(:disabled) {
+  background: #0A7FE5 !important;
+  transform: scale(0.98) !important;
+}
+
+.cm-searchDialog button:disabled {
+  opacity: 0.25 !important;
+  cursor: not-allowed !important;
+  border-color: var(--border-subtle) !important;
+}
+
+.cm-searchDialog label {
+  font-family: var(--font-ui) !important;
+  font-size: var(--font-size-app-xs) !important;
+  color: var(--text-secondary) !important;
+  user-select: none !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  padding: 0 4px !important;
+}
+
+.cm-searchDialog input[type='checkbox'] {
+  cursor: pointer !important;
+  accent-color: var(--accent) !important;
+}
+
+.cm-search-match {
+  background: rgba(10, 132, 255, 0.3) !important;
+}
+
+.cm-search-match.selected {
+  background: rgba(10, 132, 255, 0.5) !important;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Chat Panel                                                         */
+/* ------------------------------------------------------------------ */
+
+.chat-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  flex-shrink: 0;
+}
+
+.chat-header-title {
+  font-size: var(--font-size-app);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.chat-header-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.chat-header-status-text {
+  font-size: var(--font-size-app-sm);
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+/* Agent status bar */
+.chat-status-bar {
+  padding: 6px 12px;
+  font-size: 11px;
+  border-bottom: 1px solid transparent;
+  transition: background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.chat-status-retry {
+  margin-left: 8px;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.chat-status-retry:hover {
+  opacity: 1;
+}
+
+/* Messages scroll area */
+.chat-messages-area {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+}
+
+.chat-messages-area .chat-virtuoso > div > div {
+  padding: 14px 12px 8px 12px;
+}
+
+/* Virtuoso list 底部留白（与 Footer 组件叠加，避免最后一条贴输入框） */
+.chat-virtuoso-footer-spacer {
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.chat-virtuoso {
+  flex: 1;
+}
+
+/* Agent 对话区滚动条 — 随主题变量 */
+.chat-messages-area [data-virtuoso-scroller='true'],
+.chat-messages-area .chat-virtuoso {
+  scrollbar-color: var(--border-visible) var(--bg-panel);
+  scrollbar-width: thin;
+}
+
+.chat-messages-area [data-virtuoso-scroller='true']::-webkit-scrollbar,
+.chat-messages-area .chat-virtuoso::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.chat-messages-area [data-virtuoso-scroller='true']::-webkit-scrollbar-track,
+.chat-messages-area .chat-virtuoso::-webkit-scrollbar-track {
+  background: var(--bg-panel);
+  border-radius: 4px;
+}
+
+.chat-messages-area [data-virtuoso-scroller='true']::-webkit-scrollbar-thumb,
+.chat-messages-area .chat-virtuoso::-webkit-scrollbar-thumb {
+  background: var(--border-visible);
+  border-radius: 4px;
+  border: 2px solid var(--bg-panel);
+}
+
+.chat-messages-area [data-virtuoso-scroller='true']::-webkit-scrollbar-thumb:hover,
+.chat-messages-area .chat-virtuoso::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 35%, var(--border-visible));
+}
+
+/* ------------------------------------------------------------------ */
+/*  Chat messages — 气泡布局（用户右 / AI 左）                           */
+/* ------------------------------------------------------------------ */
+
+.msg-row {
+  display: flex;
+  width: 100%;
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.msg-row--user {
+  justify-content: flex-end;
+}
+
+.msg-row--ai,
+.msg-row--tool {
+  justify-content: flex-start;
+}
+
+/* Virtuoso 每条外包一层，相邻 .msg-row 选择器不生效；间距由 .chat-list-item 的 marginBottom 控制（见 chatListSpacing.ts） */
+.chat-list-item {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.msg-bubble {
+  max-width: min(93%, 560px);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  font-size: var(--font-size-app);
+  line-height: 1.5;
+}
+
+.msg-bubble--user {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-subtle));
+}
+
+.msg-bubble--ai {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+}
+
+.msg-bubble-ai-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.msg-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-primary) 65%, var(--bg-card));
+  font-family: var(--font-ui);
+  font-size: var(--font-size-app-xs);
+  font-weight: 500;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.msg-copy-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-visible);
+  background: var(--hover);
+}
+
+.msg-tool-wrap {
+  max-width: min(94%, 560px);
+  width: 100%;
+}
+
+.msg-ai-tool-anchor {
+  max-width: min(94%, 560px);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-visible);
+  color: var(--text-tertiary);
+  font-size: 11px;
+  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
+}
+
+.msg-tool-wrap--quiet {
+  min-height: 0;
+}
+
+/* search_content：轻量「检索中」条，不显式参数与输出（类 Claude Code 节奏） */
+.agent-quiet-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-card) 88%, var(--bg-panel));
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-app-xs);
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.agent-quiet-tool-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.agent-quiet-tool-dots > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: agent-quiet-dot 1.05s ease-in-out infinite;
+}
+
+.agent-quiet-tool-dots > span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.agent-quiet-tool-dots > span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes agent-quiet-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(1px) scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.agent-quiet-tool-label {
+  letter-spacing: 0.02em;
+}
+
+.msg-line-content--plain {
+  font-size: var(--font-size-app);
+  line-height: 1.55;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.msg-line-content--markdown {
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.msg-line-content--markdown .markdown-preview-container {
+  height: auto !important;
+  overflow: visible !important;
+}
+
+.msg-line-content--markdown .markdown-preview {
+  font-size: var(--font-size-app);
+  line-height: 1.55;
+  max-height: none;
+}
+
+.msg-line-content--markdown .markdown-preview pre {
+  margin: 0.6em 0;
+  border-radius: var(--radius-sm);
+}
+
+.msg-line-content--markdown .streaming-cursor {
+  vertical-align: baseline;
+}
+
+/* Clickable line reference links */
+.line-ref-link {
+  display: inline;
+  color: var(--accent);
+  background: none;
+  border: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  font: inherit;
+  font-size: inherit;
+  padding: 0;
+  cursor: pointer;
+  transition: border-bottom-color var(--transition-fast);
+}
+
+.line-ref-link:hover {
+  border-bottom-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+/* Streaming cursor */
+@keyframes chat-cursor-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 1.5px;
+  height: 1em;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  margin-left: 1px;
+  animation: chat-cursor-blink 1s step-end infinite;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tool Call Card                                                      */
+/* ------------------------------------------------------------------ */
+
+.tool-call-card {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+[data-theme='light'] .tool-call-card {
+  background: var(--bg-card);
+}
+
+.tool-call-card[data-error='true'] {
+  border-color: color-mix(in srgb, var(--error) 40%, transparent);
+  background: rgba(255, 69, 58, 0.06);
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tool-call-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme='light'] .tool-call-header:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.tool-call-arrow {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  transition: transform 200ms ease-out;
+}
+
+.tool-call-arrow.expanded {
+  transform: rotate(0deg);
+}
+
+.tool-call-arrow:not(.expanded) {
+  transform: rotate(-90deg);
+}
+
+.tool-call-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.tool-call-preview {
+  color: var(--text-hint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  margin-left: 4px;
+}
+
+.tool-call-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--border-visible);
+  border-top-color: var(--accent);
+  animation: tool-spin 0.8s linear infinite;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+@keyframes tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tool-call-error-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--error);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Collapsible body */
+.tool-call-body {
+  overflow: hidden;
+  transition: max-height 200ms ease-out, opacity 200ms ease-out;
+}
+
+.tool-call-body-inner {
+  padding: 0 10px 10px;
+}
+
+.tool-call-section {
+  margin-bottom: 6px;
+}
+
+.tool-call-section:last-child {
+  margin-bottom: 0;
+}
+
+.tool-call-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-tertiary);
+  display: block;
+  margin-bottom: 3px;
+}
+
+.tool-call-pre {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.tool-call-pre-error {
+  color: var(--error);
+}
+
+.tool-call-diff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.tool-call-diff-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-call-diff-block {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  border-radius: 4px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid transparent;
+}
+
+.tool-call-diff-block--remove {
+  color: #fda4af;
+  background: rgba(190, 24, 93, 0.16);
+  border-color: rgba(244, 63, 94, 0.38);
+}
+
+.tool-call-diff-block--add {
+  color: #86efac;
+  background: rgba(22, 101, 52, 0.2);
+  border-color: rgba(74, 222, 128, 0.38);
+}
+
+[data-theme='light'] .tool-call-diff-block--remove {
+  color: #9f1239;
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.25);
+}
+
+[data-theme='light'] .tool-call-diff-block--add {
+  color: #166534;
+  background: rgba(74, 222, 128, 0.16);
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Chat Input                                                          */
+/* ------------------------------------------------------------------ */
+
+.chat-input-container {
+  border-top: 1px solid var(--border-subtle);
+  padding: 12px 14px 12px 14px;
+}
+
+.chat-input-card {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px 6px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  transition: border-color var(--transition-fast);
+}
+
+.chat-input-card:focus-within {
+  border-color: var(--border-visible);
+}
+
+.chat-input-textarea {
+  flex: 1;
+  resize: none;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-app);
+  line-height: 1.45;
+  padding: 2px 2px 2px 0;
+  outline: none;
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  scrollbar-color: var(--border-visible) var(--bg-card);
+  scrollbar-width: thin;
+}
+
+.chat-input-textarea::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-input-textarea::-webkit-scrollbar-track {
+  background: var(--bg-card);
+  border-radius: 4px;
+}
+
+.chat-input-textarea::-webkit-scrollbar-thumb {
+  background: var(--border-visible);
+  border-radius: 4px;
+  border: 2px solid var(--bg-card);
+}
+
+.chat-input-textarea::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 35%, var(--border-visible));
+}
+
+.chat-input-textarea:focus {
+  outline: none;
+}
+
+.chat-input-textarea:disabled {
+  opacity: 0.5;
+}
+
+.chat-input-textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+.chat-input-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.chat-input-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #FFFFFF;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast);
+}
+
+.chat-input-send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.chat-input-send-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.chat-input-stop-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--error);
+  background: rgba(255, 69, 58, 0.1);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast);
+}
+
+.chat-input-stop-btn:hover {
+  background: rgba(255, 69, 58, 0.2);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Flash Highlight (line jump from chat reference)                     */
+/* ------------------------------------------------------------------ */
+
+@keyframes flash-highlight {
+  0% {
+    background-color: transparent;
+  }
+  15% {
+    background-color: rgba(10, 132, 255, 0.25);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.flash-highlight {
+  animation: flash-highlight 1.2s ease-out;
+}
+
+[data-theme='light'] .flash-highlight {
+  animation-name: flash-highlight--light;
+}
+
+@keyframes flash-highlight--light {
+  0% {
+    background-color: transparent;
+  }
+  15% {
+    background-color: rgba(10, 132, 255, 0.15);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Quote Chip (selected text quoted into chat input)                    */
+/* ------------------------------------------------------------------ */
+
+.chat-input-quote-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: rgba(10, 132, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.chat-input-quote-chip-text {
+  flex: 1;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.chat-input-quote-chip-dismiss {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.chat-input-quote-chip-dismiss:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme='light'] .chat-input-quote-chip-dismiss:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tool Call Preview Actions (write_file confirm/reject)                */
+/* ------------------------------------------------------------------ */
+
+.tool-call-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: 12px;
+  margin-right: 2px;
+}
+
+.tool-call-preview-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.tool-call-preview-btn-reject {
+  background: transparent;
+  border-color: var(--border-visible);
+  color: var(--text-secondary);
+}
+
+.tool-call-preview-btn-reject:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+[data-theme='light'] .tool-call-preview-btn-reject:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.tool-call-preview-btn-apply {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.tool-call-preview-btn-apply:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Status Bar Pulse (agent restarting)                                 */
+/* ------------------------------------------------------------------ */
+
+@keyframes status-dot-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.status-dot-pulse {
+  animation: status-dot-pulse 0.8s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Report Export                                                       */
+/* ------------------------------------------------------------------ */
+
+.report-export {
+  padding: 8px 16px;
+  display: flex;
+  justify-content: center;
+}
+
+.report-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: background-color var(--transition-fast, 150ms),
+    border-color var(--transition-fast, 150ms),
+    opacity var(--transition-fast, 150ms);
+}
+
+.report-export-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.report-export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.report-export--saved {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.report-export--saved svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Buttons — SkillPanel & shared                                      */
+/* ------------------------------------------------------------------ */
+
+.btn-accent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #ffffff;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--transition-fast);
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-accent:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  border: none;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.btn-card:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+.badge-subtle {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-ui);
+  font-size: var(--font-size-app-xs);
+  font-weight: 400;
+  background: color-mix(in srgb, var(--bg-card) 85%, var(--border-visible));
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+/* 设置页等与「测试连接」一致的次要按钮：默认卡片底，悬浮同侧栏文件行 */
+.flux-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 400;
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.flux-btn-secondary:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-primary);
+  border-color: var(--border-visible);
+}
+
+.flux-btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 下拉触发器：与次要按钮一致的悬浮反馈 */
+.flux-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.flux-dropdown-trigger:hover {
+  background: var(--hover);
+  border-color: var(--border-visible);
+}
+
+/* 侧栏顶栏图标按钮：固定 28×28，避免不同图标视觉尺寸顶撑布局 */
+.sidebar-toolbar-btn {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.sidebar-toolbar-btn:hover {
+  color: var(--text-primary);
+  background: var(--hover);
+}
+
+.text-app {
+  font-size: var(--font-size-app);
+}
+
+.text-app-sm {
+  font-size: var(--font-size-app-sm);
+}
+
+.text-app-xs {
+  font-size: var(--font-size-app-xs);
+}
+
+.text-app-lg {
+  font-size: var(--font-size-app-lg);
+}
+
+/* —— MDXEditor（Typora 式实时渲染）与主题对齐 —— */
+/* 预览区仅外层 .markdown-zoom-layer 滚动；此处禁止内层再截断滚动，否则长文只显示一屏、“显示不全” */
+.flux-mdx-editor-root {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-viewer);
+}
+
+.flux-mdx-editor-root .mdxeditor {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border: none;
+  font-family: var(--font-ui);
+}
+
+.flux-mdx-editor-root .mdxeditor-root-contenteditable {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+  max-height: none;
+}
+
+.flux-mdx-content {
+  padding: 12px 18px;
+  font-size: var(--font-size-app);
+  line-height: 1.65;
+  color: var(--text-primary);
+  outline: none;
+}
+
+/* Tailwind preflight 会把 h1–h6 设为 inherit，必须显式恢复层级（接近 Typora 阅读体验） */
+.flux-mdx-editor-root .flux-mdx-content h1 {
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  font-size: 1.875rem;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 1.1em 0 0.55em;
+  letter-spacing: -0.02em;
+}
+
+.flux-mdx-editor-root .flux-mdx-content h2 {
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1em 0 0.5em;
+  letter-spacing: -0.015em;
+}
+
+.flux-mdx-editor-root .flux-mdx-content h3 {
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0.9em 0 0.45em;
+}
+
+.flux-mdx-editor-root .flux-mdx-content h4 {
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0.85em 0 0.4em;
+}
+
+.flux-mdx-editor-root .flux-mdx-content h5 {
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0.75em 0 0.35em;
+}
+
+.flux-mdx-editor-root .flux-mdx-content h6 {
+  font-family: var(--font-ui);
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0.75em 0 0.35em;
+}
+
+.flux-mdx-editor-root .flux-mdx-content strong {
+  font-weight: 600;
+}
+
+.flux-mdx-content p {
+  margin: 0.5em 0;
+}
+
+.flux-mdx-content blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 0.75em 0;
+  padding-left: 1em;
+  color: var(--text-secondary);
+}
+
+.flux-mdx-content code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-card);
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-sm);
+}
+
+.flux-mdx-content pre {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  overflow: auto;
+}
+
+/* MD 预览内代码块：与 Typora 一致为单色阅读，不用源码编辑器的语义配色 */
+.flux-mdx-content pre,
+.flux-mdx-content pre code {
+  color: var(--text-primary);
+}
+.flux-mdx-content pre span {
+  color: inherit !important;
+}
+
+.markdown-zoom-layer {
+  background: var(--bg-viewer);
+}
+
+/* —— 分栏模式：左右双栏，仅右侧显示滚动条，JS 同步滚动 —— */
+
+/* 左侧源码：隐藏滚动条视觉，但仍可滚动（JS 同步驱动） */
+.markdown-split-left {
+  scrollbar-width: none;
+}
+
+.markdown-split-left::-webkit-scrollbar {
+  display: none;
+}
+
+/* 右侧预览：修复 MdPreview 的 inline height:100% 裁剪问题 */
+.markdown-split-right .markdown-preview {
+  padding: 32px 48px;
+}
+
