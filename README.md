@@ -1,5 +1,3 @@
-<img src="resources/icon.png" alt="Flux" width="96" />
-
 # Flux
 
 AI 驱动的沉浸式文本工作站。编辑、分析、阅读文本，配合 AI 辅助——为**心流**而设计，一种深度专注、忘记时间、人与工具合一的状态。
@@ -8,7 +6,12 @@ AI 驱动的沉浸式文本工作站。编辑、分析、阅读文本，配合 A
 
 ## 界面预览
 
+### 软件图标
+
+<img src="resources/icon.png" alt="Flux" width="96" />
+
 ### 暗色主题
+
 <img src="resources/screenshots/app-black.png" alt="Flux 暗色主题" width="100%" />
 
 ### 亮色主题
