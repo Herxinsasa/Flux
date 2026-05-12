@@ -1,8 +1,16 @@
-# Flux
+# <img src="resources/icon.png" alt="Flux" width="96" />Flux
 
 AI 驱动的沉浸式文本工作站。编辑、分析、阅读文本，配合 AI 辅助——为**心流**而设计，一种深度专注、忘记时间、人与工具合一的状态。
 
 > 命名源自拉丁语 **fluxus**——流动、变化、通量、持续变动的状态。如同河水奔流不息，思想与代码在时间中不断演进，永不停滞。
+
+## 界面预览
+
+### 暗色主题
+<img src="resources/screenshots/app-black.png" alt="Flux 暗色主题" width="100%" />
+
+### 亮色主题
+<img src="resources/screenshots/app-white.png" alt="Flux 亮色主题" width="100%" />
 
 ## 功能特性
 
@@ -65,12 +73,6 @@ AI 驱动的沉浸式文本工作站。编辑、分析、阅读文本，配合 A
 - **状态栏** — 底部状态信息显示
 - **虚拟滚动** — 大量消息列表高性能渲染（react-virtuoso）
 - **快捷键支持** — Ctrl+X/C/V 剪切复制粘贴、Ctrl+F 查找、Ctrl+A 全选
-
-## 界面预览
-
-| 暗色主题 | 亮色主题 |
-|---------|---------|
-| ![Flux 暗色主题](resources/screenshots/app-black.png) | ![Flux 亮色主题](resources/screenshots/app-white.png) |
 
 ## 技术栈
 
