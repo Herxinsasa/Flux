@@ -3,6 +3,9 @@
 declare global {
   interface Window {
     electronAPI: {
+      app: {
+        getVersion: () => Promise<{ success: boolean; data?: { version: string }; error?: string }>
+      }
       file: {
         open: () => Promise<unknown>
         create: () => Promise<unknown>

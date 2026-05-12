@@ -9,6 +9,7 @@ directories:
 files:
   - out/**/*
   - package.json
+  - skills/**/*.md
 
 asar: true
 asarUnpack:
@@ -18,6 +19,8 @@ asarUnpack:
 win:
   target:
     - target: nsis
+      arch: [x64]
+    - target: zip
       arch: [x64]
 
 nsis:

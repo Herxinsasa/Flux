@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC_CHANNELS } from '../shared/ipc-channels'
 
 const electronAPI = {
+  app: {
+    getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
+  },
   file: {
     open: () => ipcRenderer.invoke(IPC_CHANNELS.FILE_OPEN),
     create: () => ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE),

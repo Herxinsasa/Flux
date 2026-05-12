@@ -1,5 +1,6 @@
 // IPC channel name constants, shared between main and renderer processes
 export const IPC_CHANNELS = {
+  APP_GET_VERSION: 'app:get-version',
   FILE_OPEN: 'file:open',
   FILE_CREATE: 'file:create',
   FILE_OPEN_FOLDER: 'file:open-folder',

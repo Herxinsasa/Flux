@@ -8,9 +8,10 @@ interface MenuBarProps {
   onOpenSettings?: () => void
   onOpenSkills?: () => void
   onOpenHelp?: () => void
+  onOpenAbout?: () => void
 }
 
-export function MenuBar({ onOpenSettings, onOpenSkills, onOpenHelp }: MenuBarProps) {
+export function MenuBar({ onOpenSettings, onOpenSkills, onOpenHelp, onOpenAbout }: MenuBarProps) {
   const [open, setOpen] = useState<TopMenu>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const lastEditableRef = useRef<HTMLElement | null>(null)
@@ -386,6 +387,16 @@ export function MenuBar({ onOpenSettings, onOpenSkills, onOpenHelp }: MenuBarPro
               }}
             >
               使用说明
+            </button>
+            <button
+              type="button"
+              className={itemClass}
+              onClick={() => {
+                close()
+                onOpenAbout?.()
+              }}
+            >
+              关于
             </button>
           </div>
         )}

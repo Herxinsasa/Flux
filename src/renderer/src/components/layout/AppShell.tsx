@@ -13,6 +13,7 @@ import { ChatPanel } from '../chat/ChatPanel'
 import { SettingsView } from '../settings/SettingsView'
 import { SkillPanel } from '../skill/SkillPanel'
 import { HelpView } from '../help/HelpView'
+import { AboutDialog } from '../help/AboutDialog'
 import { useFileStore } from '../../stores/fileStore'
 import { useFileImport } from '../../hooks/useFileImport'
 import { useProvider } from '../../hooks/useProvider'
@@ -31,6 +32,8 @@ export function AppShell() {
   const workspaceOpenNonce = useFileStore((s) => s.workspaceOpenNonce)
   const [globalToast, setGlobalToast] = useState<FluxToastState | null>(null)
   const [overlay, setOverlay] = useState<OverlayView>('none')
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const [appVersion, setAppVersion] = useState('1.0.0')
 
   const sidebarWidth = useLayoutStore((s) => s.sidebarWidth)
   const chatWidth = useLayoutStore((s) => s.chatWidth)
@@ -42,6 +45,15 @@ export function AppShell() {
 
   // Register global keyboard shortcuts
   useShortcuts()
+
+  useEffect(() => {
+    void (async () => {
+      const res = await window.electronAPI.app.getVersion()
+      if (res?.success && res.data?.version) {
+        setAppVersion(res.data.version)
+      }
+    })()
+  }, [])
 
   // Load settings configuration from main process on startup
   useEffect(() => {
@@ -94,6 +106,10 @@ export function AppShell() {
 
   const handleNavigateToHelp = useCallback(() => {
     setOverlay('help')
+  }, [])
+
+  const handleOpenAbout = useCallback(() => {
+    setAboutOpen(true)
   }, [])
 
   const handleBack = useCallback(() => {
@@ -150,6 +166,7 @@ export function AppShell() {
             onOpenSettings={handleNavigateToSettings}
             onOpenSkills={handleNavigateToSkills}
             onOpenHelp={handleNavigateToHelp}
+            onOpenAbout={handleOpenAbout}
             onToggleTheme={handleToggleTheme}
           />
 
@@ -200,6 +217,7 @@ export function AppShell() {
           </ErrorBoundary>
         </div>
       </FileImporter>
+      <AboutDialog open={aboutOpen} version={appVersion} onClose={() => setAboutOpen(false)} />
       <FluxToast toast={globalToast} onDismiss={() => setGlobalToast(null)} />
     </>
   )

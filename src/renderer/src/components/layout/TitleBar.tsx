@@ -5,18 +5,19 @@ interface TitleBarProps {
   onOpenSettings?: () => void
   onOpenSkills?: () => void
   onOpenHelp?: () => void
+  onOpenAbout?: () => void
   onToggleTheme?: () => void
 }
 
 /**
  * 顶栏：主题化菜单 + 右侧拖拽区（系统窗口按钮由 OS 绘制，明暗由 nativeTheme 同步）
  */
-export function TitleBar({ onOpenSettings, onOpenSkills, onOpenHelp, onToggleTheme }: TitleBarProps) {
+export function TitleBar({ onOpenSettings, onOpenSkills, onOpenHelp, onOpenAbout, onToggleTheme }: TitleBarProps) {
   return (
     <div
       className="h-8 flex flex-row items-stretch shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-primary)]"
     >
-      <MenuBar onOpenSettings={onOpenSettings} onOpenSkills={onOpenSkills} onOpenHelp={onOpenHelp} />
+      <MenuBar onOpenSettings={onOpenSettings} onOpenSkills={onOpenSkills} onOpenHelp={onOpenHelp} onOpenAbout={onOpenAbout} />
       <div
         className="flex-1 min-w-0"
         style={{ WebkitAppRegion: 'drag' }}

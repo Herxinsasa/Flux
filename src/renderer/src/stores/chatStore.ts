@@ -38,6 +38,7 @@ interface ChatState {
   messages: Message[]
   agentStatus: AgentStatus
   quotes: QuoteItem[]
+  inputHistory: string[]
   quoteText: string | null
   quoteRange: QuoteRange | null
   sendMessage: (content: string, opts?: { contextFootnote?: string }) => void
@@ -58,6 +59,7 @@ interface ChatState {
   appendQuote: (quote: { text: string; range?: QuoteRange | null; sourceLabel?: string }) => void
   removeQuote: (quoteId: string) => void
   clearQuotes: () => void
+  pushInputHistory: (text: string) => void
   cancelAgent: () => void
   clearMessages: () => void
 }
@@ -66,6 +68,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   agentStatus: 'idle',
   quotes: [],
+  inputHistory: [],
   quoteText: null,
   quoteRange: null,
 
@@ -221,7 +224,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   clearQuotes: () => set({ quotes: [], quoteText: null, quoteRange: null }),
 
+  pushInputHistory: (text) =>
+    set((state) => {
+      const normalized = text.trim()
+      if (!normalized) return state
+      const deduped = state.inputHistory.filter((item) => item !== normalized)
+      return {
+        inputHistory: [...deduped, normalized].slice(-5),
+      }
+    }),
+
   cancelAgent: () => set({ agentStatus: 'idle' }),
 
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: () => set({ messages: [], inputHistory: [] }),
 }))

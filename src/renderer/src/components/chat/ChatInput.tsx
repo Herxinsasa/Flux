@@ -41,6 +41,11 @@ export function ChatInput({
   const slashMenuQuerySnapshotRef = useRef<string | null>(null)
   const quotes = useChatStore((s) => s.quotes)
   const removeQuote = useChatStore((s) => s.removeQuote)
+  const inputHistory = useChatStore((s) => s.inputHistory)
+  const pushInputHistory = useChatStore((s) => s.pushInputHistory)
+  const historyIndexRef = useRef(-1)
+  const draftBeforeHistoryRef = useRef('')
+  const suppressMenusUntilInputRef = useRef(false)
 
   /** @ 补全：从光标前最后一个 `@` 到光标为 query */
   const [atOpen, setAtOpen] = useState(false)
@@ -191,10 +196,14 @@ export function ChatInput({
   const handleSend = useCallback(() => {
     const trimmed = text.trim()
     if ((!trimmed && skillInvocations.length === 0) || isRunning || disabled) return
+    pushInputHistory(trimmed)
     atOpenRef.current = false
     slashOpenRef.current = false
     atMenuQuerySnapshotRef.current = null
     slashMenuQuerySnapshotRef.current = null
+    suppressMenusUntilInputRef.current = false
+    historyIndexRef.current = -1
+    draftBeforeHistoryRef.current = ''
     setAtOpen(false)
     setSlashOpen(false)
     void onSend(trimmed, {
@@ -204,7 +213,7 @@ export function ChatInput({
     setText('')
     setAttachments([])
     setSkillInvocations([])
-  }, [text, isRunning, disabled, onSend, attachments, skillInvocations])
+  }, [text, isRunning, disabled, onSend, attachments, skillInvocations, pushInputHistory])
 
   const pickMention = useCallback(
     (path: string) => {
@@ -307,6 +316,70 @@ export function ChatInput({
         handleSend()
         return
       }
+
+      const hasModifier = e.ctrlKey || e.metaKey || e.altKey || e.shiftKey
+      const textarea = e.currentTarget
+      const selectionStart = textarea.selectionStart ?? text.length
+      const selectionEnd = textarea.selectionEnd ?? text.length
+      const caretAtEnd = selectionStart === text.length && selectionEnd === text.length
+
+      if (!hasModifier && e.key === 'ArrowUp' && caretAtEnd && inputHistory.length > 0) {
+        e.preventDefault()
+        if (historyIndexRef.current === -1) {
+          draftBeforeHistoryRef.current = text
+          historyIndexRef.current = inputHistory.length - 1
+        } else if (historyIndexRef.current > 0) {
+          historyIndexRef.current -= 1
+        }
+        const nextText = inputHistory[historyIndexRef.current] ?? ''
+        atOpenRef.current = false
+        slashOpenRef.current = false
+        atMenuQuerySnapshotRef.current = null
+        slashMenuQuerySnapshotRef.current = null
+        setAtOpen(false)
+        setSlashOpen(false)
+        suppressMenusUntilInputRef.current = true
+        setText(nextText)
+        requestAnimationFrame(() => {
+          textareaRef.current?.setSelectionRange(nextText.length, nextText.length)
+        })
+        return
+      }
+
+      if (!hasModifier && e.key === 'ArrowDown' && caretAtEnd && historyIndexRef.current !== -1) {
+        e.preventDefault()
+        suppressMenusUntilInputRef.current = true
+        if (historyIndexRef.current < inputHistory.length - 1) {
+          historyIndexRef.current += 1
+          const nextText = inputHistory[historyIndexRef.current] ?? ''
+          atOpenRef.current = false
+          slashOpenRef.current = false
+          atMenuQuerySnapshotRef.current = null
+          slashMenuQuerySnapshotRef.current = null
+          setAtOpen(false)
+          setSlashOpen(false)
+          setText(nextText)
+          requestAnimationFrame(() => {
+            textareaRef.current?.setSelectionRange(nextText.length, nextText.length)
+          })
+        } else {
+          historyIndexRef.current = -1
+          const draft = draftBeforeHistoryRef.current
+          draftBeforeHistoryRef.current = ''
+          atOpenRef.current = false
+          slashOpenRef.current = false
+          atMenuQuerySnapshotRef.current = null
+          slashMenuQuerySnapshotRef.current = null
+          setAtOpen(false)
+          setSlashOpen(false)
+          setText(draft)
+          requestAnimationFrame(() => {
+            textareaRef.current?.setSelectionRange(draft.length, draft.length)
+          })
+        }
+        return
+      }
+
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault()
         handleSend()
@@ -327,6 +400,8 @@ export function ChatInput({
       handleSend,
       isRunning,
       onCancel,
+      inputHistory,
+      text,
     ],
   )
 
@@ -461,16 +536,23 @@ export function ChatInput({
             value={text}
             onChange={(e) => {
               const v = e.target.value
+              historyIndexRef.current = -1
+              draftBeforeHistoryRef.current = ''
+              suppressMenusUntilInputRef.current = false
               setText(v)
               syncMenus(v, e.target.selectionStart)
             }}
-            onSelect={(e) => syncMenus(e.currentTarget.value, e.currentTarget.selectionStart)}
-            onKeyUp={(e) =>
+            onSelect={(e) => {
+              if (suppressMenusUntilInputRef.current) return
+              syncMenus(e.currentTarget.value, e.currentTarget.selectionStart)
+            }}
+            onKeyUp={(e) => {
+              if (suppressMenusUntilInputRef.current) return
               syncMenus(
                 e.currentTarget.value,
                 e.currentTarget.selectionStart ?? e.currentTarget.value.length,
               )
-            }
+            }}
             onKeyDown={handleKeyDown}
             placeholder="输入你的想法..."
             disabled={isRunning || disabled}

@@ -43,6 +43,7 @@ function isPathInsideWorkspace(filePath: string, workspaceRoot: string | null): 
 function FileTreeItem({ file, badge }: { file: FileEntry; badge?: string }) {
   const currentFile = useFileStore((s) => s.currentFile)
   const setCurrentFile = useFileStore((s) => s.setCurrentFile)
+  const removeFile = useFileStore((s) => s.removeFile)
   const isActive = file.path === currentFile
   const emoji = fileEmoji(file.extension)
 
@@ -50,10 +51,17 @@ function FileTreeItem({ file, badge }: { file: FileEntry; badge?: string }) {
     setCurrentFile(file.path)
   }, [file.path, setCurrentFile])
 
+  const handleClose = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.preventDefault()
+      e.stopPropagation()
+      removeFile(file.path)
+    },
+    [file.path, removeFile],
+  )
+
   return (
-    <button
-      type="button"
-      onClick={handleClick}
+    <div
       className={`w-full text-left rounded-[var(--radius-sm)] text-app-sm cursor-pointer transition-colors duration-[var(--transition-fast)] flex items-center gap-2 font-[var(--font-mono)] ${
         isActive
           ? 'bg-[var(--selection)] text-[var(--text-primary)]'
@@ -62,22 +70,37 @@ function FileTreeItem({ file, badge }: { file: FileEntry; badge?: string }) {
       style={{ padding: '8px 6px' }}
       title={file.path}
     >
-      <span
-        className="shrink-0 text-app-sm font-[var(--font-mono)] font-normal leading-none"
-        aria-hidden
+      <button
+        type="button"
+        onClick={handleClick}
+        className="flex items-center gap-2 flex-1 min-w-0 text-left bg-transparent border-0 p-0 m-0 cursor-pointer text-inherit font-inherit"
       >
-        {emoji}
-      </span>
-      <span className="truncate flex-1 min-w-0">{file.name}</span>
-      {badge ? (
-        <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[var(--hover)] text-[var(--text-tertiary)]">
-          {badge}
+        <span
+          className="shrink-0 text-app-sm font-[var(--font-mono)] font-normal leading-none"
+          aria-hidden
+        >
+          {emoji}
         </span>
-      ) : null}
-      {file.size > 0 && (
-        <span className="badge shrink-0">{formatSize(file.size)}</span>
-      )}
-    </button>
+        <span className="truncate flex-1 min-w-0">{file.name}</span>
+        {badge ? (
+          <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-[var(--hover)] text-[var(--text-tertiary)]">
+            {badge}
+          </span>
+        ) : null}
+        {file.size > 0 && (
+          <span className="badge shrink-0">{formatSize(file.size)}</span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={handleClose}
+        className="shrink-0 w-5 h-5 rounded text-[var(--text-hint)] hover:text-[var(--text-primary)] hover:bg-[var(--hover)] border-0 bg-transparent cursor-pointer leading-none"
+        title={`关闭 ${file.name}`}
+        aria-label={`关闭 ${file.name}`}
+      >
+        ×
+      </button>
+    </div>
   )
 }
 

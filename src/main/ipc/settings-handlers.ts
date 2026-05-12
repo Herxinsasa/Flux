@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
 import { IPC_CHANNELS } from '../../shared/ipc-channels'
 import store from '../store/index'
 import log from '../logger'
@@ -217,7 +217,17 @@ async function runProviderConnectivityTest(
 }
 
 export function registerSettingsHandlers(): void {
-  const { SETTINGS_SAVE, SETTINGS_GET, SETTINGS_GET_CATALOG, SETTINGS_TEST_CONNECTION, SETTINGS_WORKSPACE_VERIFY } = IPC_CHANNELS
+  const { APP_GET_VERSION, SETTINGS_SAVE, SETTINGS_GET, SETTINGS_GET_CATALOG, SETTINGS_TEST_CONNECTION, SETTINGS_WORKSPACE_VERIFY } = IPC_CHANNELS
+
+  ipcMain.handle(APP_GET_VERSION, async () => {
+    try {
+      return { success: true, data: { version: app.getVersion() } }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      log.error(`APP_GET_VERSION failed: ${message}`)
+      return { success: false, error: message }
+    }
+  })
 
   // --- GET: 本地明文配置；供应商 apiKey 原样返回供表单展示（与磁盘一致） ---
   ipcMain.handle(SETTINGS_GET, async () => {

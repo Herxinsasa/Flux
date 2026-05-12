@@ -45,7 +45,7 @@ export function registerFileHandlers(): void {
         const window = BrowserWindow.getFocusedWindow()
         const result = await dialog.showSaveDialog(window!, {
           title: '新建文件',
-          defaultPath: 'untitled.txt',
+          defaultPath: 'untitled.md',
           filters: [
             { name: 'Markdown', extensions: ['md'] },
             { name: 'Text', extensions: ['txt'] },
@@ -67,10 +67,8 @@ export function registerFileHandlers(): void {
           fs.mkdirSync(dir, { recursive: true })
         }
 
-        // 创建空文件；若已存在则保留原内容（由用户在编辑区继续修改）
-        if (!fs.existsSync(targetPath)) {
-          fs.writeFileSync(targetPath, '', 'utf-8')
-        }
+        // 用户在保存对话框确认“替换”后，需要真正覆盖为一个空文件。
+        fs.writeFileSync(targetPath, '', 'utf-8')
 
         return { success: true, data: targetPath }
       } catch (err) {

@@ -1,5 +1,5 @@
 import { existsSync } from 'fs'
-import { app, BrowserWindow, Menu, shell } from 'electron'
+import { app, BrowserWindow, Menu, dialog, shell } from 'electron'
 import { join } from 'path'
 import { registerAllHandlers } from './ipc/index'
 import log from './logger'
@@ -10,7 +10,21 @@ import store from './store/index'
 // 应用名称（影响日志路径和用户数据目录）
 app.setName('Flux')
 
-// 开发/未打包：任务栏与窗口使用项目内 resources/icon.png（与 electron-builder 打包源一致）
+// 单实例锁：第二次启动时提示并退出，避免多开导致用户误以为“卡住”。
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
+  dialog.showMessageBoxSync({
+    type: 'info',
+    title: 'Flux',
+    message: 'Flux 已在运行，不支持多开。',
+    detail: '请切换到已打开的 Flux 窗口。',
+    buttons: ['确定'],
+    defaultId: 0,
+  })
+  app.quit()
+}
+
+// 开发/未打包：窗口与任务栏使用白底图标；顶部自定义标题栏另用透明 logo。
 function resolveWindowIcon(): string | undefined {
   const png = join(__dirname, '../../resources/icon.png')
   if (existsSync(png)) return png
@@ -67,6 +81,8 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  if (!hasSingleInstanceLock) return
+
   log.info('App ready')
 
   // Windows / Linux：去掉系统菜单栏（File / Edit / …），避免与自定义标题区重复叠层。
@@ -84,6 +100,15 @@ app.whenReady().then(() => {
       createWindow()
     }
   })
+})
+
+app.on('second-instance', () => {
+  const [mainWindow] = BrowserWindow.getAllWindows()
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+  mainWindow.focus()
 })
 
 app.on('window-all-closed', () => {
