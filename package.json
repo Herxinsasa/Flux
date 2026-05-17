@@ -13,6 +13,7 @@
     "pack:win": "npm run icons:build && electron-vite build && electron-builder --win",
     "pack:mac": "npm run icons:build && electron-vite build && electron-builder --mac",
     "package:win": "npm run icons:build && electron-builder --win",
+    "package:isv": "node scripts/build-isv.mjs",
     "package:mac": "npm run icons:build && electron-builder --mac",
     "package:linux": "npm run icons:build && electron-builder --linux",
     "preview": "electron-vite preview",

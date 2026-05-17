@@ -2,6 +2,8 @@ node_modules/
 out/
 dist/
 release/
+release-isv/
+electron-builder.yml.bak
 *.log
 .DS_Store
 .env
