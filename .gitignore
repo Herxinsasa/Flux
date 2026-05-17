@@ -4,6 +4,7 @@ dist/
 release/
 release-isv/
 electron-builder.yml.bak
+scripts/build-isv.mjs
 *.log
 .DS_Store
 .env
