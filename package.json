@@ -1,6 +1,6 @@
 {
   "name": "flux-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Flux - AI-powered immersive text editing, analysis, and reading Electron desktop tool",
   "main": "./out/main/index.js",
   "author": "Flux Team",

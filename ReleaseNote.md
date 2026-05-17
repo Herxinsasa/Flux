@@ -1,5 +1,22 @@
 # Release Notes
 
+## 1.0.1 (2026-05-13)
+
+### Added
+- ISV 定制版：品牌元数据（ISVision 杭州）、appId 更新为 com.isv-tech.flux
+- 内置 Skill（flux-core、problem-summary、analysis-report）打包入 asar
+- 设置页”自定义”提供商新增”协议类型”下拉，可在 OpenAI Chat Completions 与 Anthropic Messages 之间切换。
+- 协议下拉选项新增端点提示（`/v1/chat/completions`、`/v1/messages`），便于快速校验对接协议。
+
+### Changed
+- 导出分析报告成功后，自动刷新当前工作区文件列表，导出文件可立即在文件树中可见。
+- 自定义协议类型会参与“测试连接”和“保存配置”，不再固定按单一协议发送请求。
+- 设置页下拉触发器视觉优化：箭头样式与大小重新调整，提升识别度并减少突兀感。
+
+### Fixed
+- 修复导出报告后“已保存但工作区未刷新”的问题。
+- 修复部分自定义配置在回显后协议设置项不易出现的问题（显示逻辑已放宽）。
+
 ## 1.0.0 (Released)
 
 ### Added
