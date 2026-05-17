@@ -27,6 +27,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
+  artifactName: "${productName} Setup.${ext}"
 
 mac:
   target:
