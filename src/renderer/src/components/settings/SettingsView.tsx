@@ -21,9 +21,37 @@ interface SettingsViewProps {
 }
 
 const EPHEMERAL_TEST_ID = '__connection-test__'
-
 function newProviderId(): string {
   return `provider-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+const CUSTOM_PROTOCOL_OPTIONS: Array<{
+  value: Provider['type']
+  label: string
+  endpointHint: string
+}> = [
+  {
+    value: 'anthropic',
+    label: 'Anthropic Native Messages',
+    endpointHint: '/v1/messages',
+  },
+  {
+    value: 'openai_compat',
+    label: 'OpenAI Chat Completions',
+    endpointHint: '/v1/chat/completions',
+  },
+  {
+    value: 'anthropic_compat',
+    label: 'Anthropic Messages',
+    endpointHint: '/v1/messages',
+  },
+]
+
+function getProtocolLabel(type: Provider['type']): string {
+  if (type === 'anthropic') return 'Anthropic Native Messages'
+  if (type === 'anthropic_compat') return 'Anthropic Messages'
+  if (type === 'openai_compat') return 'OpenAI Chat Completions'
+  return 'Anthropic Messages'
 }
 
 export function SettingsView({ onBack }: SettingsViewProps) {
@@ -45,11 +73,13 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   /* ── Form state ── */
   const [presetKey, setPresetKey] = useState('anthropic')
   const [presetOpen, setPresetOpen] = useState(false)
+  const [protocolOpen, setProtocolOpen] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
   const [modelOpen, setModelOpen] = useState(false)
+  const [customProviderType, setCustomProviderType] = useState<Provider['type']>('openai_compat')
   const [, setDirty] = useState(false)
   const [toast, setToast] = useState<SettingsToastState | null>(null)
   const prevSavedIdRef = useRef<string | null | undefined>(undefined)
@@ -58,7 +88,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   useEffect(() => {
     const loadCatalog = async () => {
       try {
-        const response = await window.electron.ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_CATALOG)
+        const response = await (window as any).electron.ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_CATALOG)
         if (response.success && response.data) {
           setCatalog(response.data)
         }
@@ -84,7 +114,9 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     prevSavedIdRef.current = sid
 
     if (activeProvider) {
-      setPresetKey(inferPresetKeyFromProvider(activeProvider))
+      const inferredPreset = inferPresetKeyFromProvider(activeProvider)
+      setPresetKey(inferredPreset)
+      setCustomProviderType(activeProvider.type)
       setApiKey(activeProvider.apiKey)
       setBaseUrl(activeProvider.baseUrl ?? '')
       setModel(activeProvider.model)
@@ -104,10 +136,12 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   const handlePresetSelect = useCallback(
     (k: string) => {
       setPresetOpen(false)
+      setProtocolOpen(false)
       setProviders([])
       setActiveProvider(null)
       setPresetKey(k)
       const p = PROVIDER_PRESETS[k]
+      setCustomProviderType(p.type)
       setBaseUrl(p.baseUrl ?? '')
       setModel(defaultModelForPresetKey(k))
       setDirty(true)
@@ -116,7 +150,11 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   )
 
   const currentPreset = PROVIDER_PRESETS[presetKey]
-  const showBaseUrl = activeProvider ? activeProvider.type !== 'anthropic' : currentPreset.type !== 'anthropic'
+  const showProtocolSelector = true
+  const selectedProviderType: Provider['type'] = customProviderType
+  const selectedProviderName =
+    presetKey === 'custom' ? getProtocolLabel(selectedProviderType) : currentPreset.label
+  const showBaseUrl = selectedProviderType !== 'anthropic'
 
   const modelOptions = useMemo(() => {
     // 如果有 catalog，优先使用 catalog 中的模型
@@ -125,20 +163,32 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       if (provider) {
         const catalogModels = provider.models
           .filter((m) => m.status === 'active')
-          .map((m) => ({ id: m.id, label: m.label }))
+            .map((m) => m.id)
         return mergeCurrentModelOption(model, catalogModels)
       }
     }
     // 回退到原有的 providerModels 逻辑
+    const modelScopedProvider: Provider | null =
+      presetKey === 'custom'
+        ? {
+            id: activeProvider?.id ?? '__custom__',
+            name: activeProvider?.name ?? '自定义',
+            type: selectedProviderType,
+            apiKey: activeProvider?.apiKey ?? '',
+            baseUrl: baseUrl || activeProvider?.baseUrl,
+            model: model || activeProvider?.model || '',
+          }
+        : activeProvider
+
     return mergeCurrentModelOption(
       model,
       getModelIdsForSettings({
         presetKey,
-        activeProvider,
+        activeProvider: modelScopedProvider,
         formBaseUrl: baseUrl,
       }),
     )
-  }, [model, presetKey, activeProvider, baseUrl, catalog])
+  }, [model, presetKey, activeProvider, baseUrl, catalog, selectedProviderType])
 
   /* ── Actions ── */
   const handleTest = useCallback(async () => {
@@ -149,12 +199,12 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       }
       const providerForTest = {
         id: activeProvider?.id ?? EPHEMERAL_TEST_ID,
-        name: currentPreset.label,
-        type: currentPreset.type,
+        name: selectedProviderName,
+        type: selectedProviderType,
         apiKey: apiKey.trim(),
         model,
         baseUrl:
-          currentPreset.type === 'anthropic'
+          selectedProviderType === 'anthropic'
             ? undefined
             : baseUrl.trim() || currentPreset.baseUrl || undefined,
       }
@@ -167,14 +217,14 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     } catch (e) {
       setToast({ variant: 'error', message: '连接失败，请检查配置' })
     }
-  }, [activeProvider, presetKey, apiKey, baseUrl, model, testConnection, currentPreset])
+  }, [activeProvider, apiKey, baseUrl, model, testConnection, currentPreset, selectedProviderName, selectedProviderType])
 
   const handleSave = useCallback(async () => {
     try {
       const trimmedApiKey = apiKey.trim()
       const trimmedModel = model.trim()
       const effectiveBaseUrl =
-        currentPreset.type === 'anthropic'
+        selectedProviderType === 'anthropic'
           ? undefined
           : (baseUrl.trim() || currentPreset.baseUrl || '').trim()
 
@@ -186,19 +236,19 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         setToast({ variant: 'error', message: '请先填写模型' })
         return
       }
-      if (presetKey === 'custom' && !effectiveBaseUrl) {
-        setToast({ variant: 'error', message: '请先填写 Base URL' })
+      if (selectedProviderType === 'anthropic_compat' && !effectiveBaseUrl) {
+        setToast({ variant: 'error', message: 'Anthropic 兼容协议请先填写 Base URL' })
         return
       }
 
       const id = activeProvider?.id ?? newProviderId()
       const next = {
         id,
-        name: currentPreset.label,
-        type: currentPreset.type,
+        name: selectedProviderName,
+        type: selectedProviderType,
         apiKey: trimmedApiKey,
         model: trimmedModel,
-        baseUrl: currentPreset.type === 'anthropic' ? undefined : effectiveBaseUrl || undefined,
+        baseUrl: selectedProviderType === 'anthropic' ? undefined : effectiveBaseUrl || undefined,
       }
       setProviders([next])
       setActiveProvider(id)
@@ -219,6 +269,8 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     save,
     currentPreset,
     presetKey,
+    selectedProviderName,
+    selectedProviderType,
     setProviders,
     setActiveProvider,
   ])
@@ -289,7 +341,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
                   {currentPreset.label}
                 </span>
-                <span style={{ fontSize: 12, fontFamily: 'var(--font-ui)', color: 'var(--text-tertiary)' }}>▾</span>
+                <span style={{ fontSize: 11, lineHeight: 1, fontFamily: 'var(--font-ui)', color: 'var(--text-tertiary)', fontWeight: 500 }}>▾</span>
               </button>
               {presetOpen && (
                 <>
@@ -306,6 +358,57 @@ export function SettingsView({ onBack }: SettingsViewProps) {
               )}
             </div>
           </div>
+
+          {showProtocolSelector && (
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-ui)', color: 'var(--text-primary)', marginBottom: 8 }}>
+                协议类型
+              </div>
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setProtocolOpen(!protocolOpen)}
+                  className="flux-dropdown-trigger"
+                >
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
+                    {getProtocolLabel(customProviderType)}
+                  </span>
+                  <span style={{ fontSize: 11, lineHeight: 1, fontFamily: 'var(--font-ui)', color: 'var(--text-tertiary)', fontWeight: 500 }}>▾</span>
+                </button>
+
+                {protocolOpen && (
+                  <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setProtocolOpen(false)} />
+                    <div className="context-menu flux-scroll" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, marginTop: 4, maxHeight: 240, overflowY: 'auto' }}>
+                      {CUSTOM_PROTOCOL_OPTIONS.map((opt) => (
+                        <div
+                          key={opt.value}
+                          className="context-menu-item"
+                          onClick={() => {
+                            setCustomProviderType(opt.value)
+                            setProtocolOpen(false)
+                            setDirty(true)
+                          }}
+                          style={{
+                            fontWeight: customProviderType === opt.value ? 600 : 400,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                          }}
+                        >
+                          <span>{opt.label}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-tertiary)' }}>
+                            {opt.endpointHint}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* ── 2. API Key（可编辑） ── */}
           <div>
@@ -431,7 +534,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
                   {displayModel}
                 </span>
-                <span style={{ fontSize: 12, fontFamily: 'var(--font-ui)', color: 'var(--text-tertiary)' }}>▾</span>
+                <span style={{ fontSize: 11, lineHeight: 1, fontFamily: 'var(--font-ui)', color: 'var(--text-tertiary)', fontWeight: 500 }}>▾</span>
               </button>
               {modelOpen && (
                 <>

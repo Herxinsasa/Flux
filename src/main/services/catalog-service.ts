@@ -95,9 +95,21 @@ function getCatalogPath(): string {
   return path.join(getConfigDir(), 'providers-catalog.json')
 }
 
+/** 首次启动时初始化 catalog 文件；仅在文件不存在时写入，不覆盖用户修改。 */
+function ensureCatalogFile(filePath: string): void {
+  try {
+    if (fs.existsSync(filePath)) return
+    fs.writeFileSync(filePath, JSON.stringify(BUILTIN_CATALOG, null, 2), 'utf-8')
+    log.info('Initialized providers catalog at', filePath)
+  } catch (err) {
+    log.warn('Failed to initialize providers catalog file', err)
+  }
+}
+
 /** 读取 catalog，优先本地文件，回退内置默认 */
 export function loadCatalog(): ProvidersCatalog {
   const filePath = getCatalogPath()
+  ensureCatalogFile(filePath)
   try {
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, 'utf-8')

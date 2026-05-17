@@ -1,6 +1,6 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '../../shared/ipc-channels'
-import { IpcResponse, FileInfo, type WorkspaceOpenData } from '../../shared/types'
+import { IpcResponse, FileInfo, type WorkspaceOpenData, type WorkspaceFileEntry } from '../../shared/types'
 import { getFileInfo, readFile, detectEncoding } from '../services/file-service'
 import { streamReadFile } from '../services/stream-reader'
 import { listWorkspaceFiles } from '../services/workspace-service'
@@ -9,7 +9,7 @@ import fs from 'fs'
 import path from 'path'
 
 export function registerFileHandlers(): void {
-  const { FILE_OPEN, FILE_CREATE, FILE_OPEN_FOLDER, FILE_READ, FILE_READ_STREAM, FILE_INFO, FILE_WRITE } =
+  const { FILE_OPEN, FILE_CREATE, FILE_OPEN_FOLDER, FILE_LIST_WORKSPACE_FILES, FILE_READ, FILE_READ_STREAM, FILE_INFO, FILE_WRITE } =
     IPC_CHANNELS
 
   // ── FILE_OPEN ── open native file dialog, return selected path ──
@@ -100,6 +100,22 @@ export function registerFileHandlers(): void {
       return { success: false, error: String(err) }
     }
   })
+
+  // ── FILE_LIST_WORKSPACE_FILES ── 刷新指定工作区内可编辑文件列表 ──
+  ipcMain.handle(
+    FILE_LIST_WORKSPACE_FILES,
+    async (_event, root: string): Promise<IpcResponse<WorkspaceFileEntry[]>> => {
+      try {
+        if (!root || typeof root !== 'string') {
+          return { success: false, error: 'Invalid workspace root' }
+        }
+        const files = listWorkspaceFiles(root)
+        return { success: true, data: files }
+      } catch (err) {
+        return { success: false, error: String(err) }
+      }
+    },
+  )
 
   // ── FILE_READ ── read file content (full load for all sizes) ──
   ipcMain.handle(FILE_READ, async (_event, filePath: string): Promise<IpcResponse<{ content: string; encoding: string }>> => {

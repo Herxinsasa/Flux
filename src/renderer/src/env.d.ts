@@ -10,6 +10,7 @@ declare global {
         open: () => Promise<unknown>
         create: () => Promise<unknown>
         openFolder: () => Promise<unknown>
+        listWorkspaceFiles: (root: string) => Promise<unknown>
         read: (filePath: string) => Promise<unknown>
         readStream: (filePath: string, callback: (chunk: string | null) => void) => () => void
         getInfo: (filePath: string) => Promise<unknown>

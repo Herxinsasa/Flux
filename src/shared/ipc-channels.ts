@@ -4,6 +4,7 @@ export const IPC_CHANNELS = {
   FILE_OPEN: 'file:open',
   FILE_CREATE: 'file:create',
   FILE_OPEN_FOLDER: 'file:open-folder',
+  FILE_LIST_WORKSPACE_FILES: 'file:list-workspace-files',
   FILE_READ: 'file:read',
   FILE_READ_STREAM: 'file:read-stream',
   FILE_INFO: 'file:info',

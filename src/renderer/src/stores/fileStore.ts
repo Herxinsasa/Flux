@@ -1,9 +1,12 @@
 import { create } from 'zustand'
 import { useEditorStore, inferMode } from './editorStore'
+import { useChatStore } from './chatStore'
 import type { WorkspaceConfigFilePayload, WorkspaceFileEntry } from '../../../shared/types'
 
 /** Track in-flight loads to prevent concurrent loadContent calls for the same file. */
 const _loadingPaths = new Set<string>()
+/** Active renderer-side stream subscriptions keyed by file path. */
+const _streamUnsubs = new Map<string, () => void>()
 
 export interface FileEntry {
   path: string
@@ -32,6 +35,8 @@ interface FileState {
   workspaceOpenNonce: number
   /** 工作区内扫描到的文件列表 */
   workspaceFiles: WorkspaceFileEntry[]
+  /** 主动刷新工作区文件夹内容 */
+  refreshWorkspaceFiles: () => Promise<void>
   addFile: (file: FileEntry) => void
   removeFile: (path: string) => void
   setCurrentFile: (path: string | null) => void
@@ -46,6 +51,18 @@ interface FileState {
 }
 
 export const useFileStore = create<FileState>((set, get) => ({
+    refreshWorkspaceFiles: async () => {
+      const { workspaceRoot } = get()
+      if (!workspaceRoot) return
+      try {
+        const res: any = await window.electronAPI.file.listWorkspaceFiles(workspaceRoot)
+        if (res?.success && Array.isArray(res.data)) {
+          set({ workspaceFiles: res.data })
+        }
+      } catch (e) {
+        // ignore
+      }
+    },
   files: [],
   currentFile: null,
   isLoading: false,
@@ -101,8 +118,48 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   setLoading: (loading) => set({ isLoading: loading }),
 
-  clearWorkspace: () =>
-    set({ workspaceRoot: null, workspaceFiles: [], workspaceConfig: null }),
+  clearWorkspace: () => {
+    const shouldClearRuntimeState = window.confirm(
+      '关闭工作区后，是否同时清空已打开文件、编辑器内容和 AI 对话记录？',
+    )
+
+    set({ workspaceRoot: null, workspaceFiles: [], workspaceConfig: null })
+
+    if (!shouldClearRuntimeState) {
+      return
+    }
+
+    // Stop all in-flight streams and detach renderer listeners.
+    for (const [, unsub] of _streamUnsubs) {
+      try {
+        unsub()
+      } catch {
+        // best effort
+      }
+    }
+    _streamUnsubs.clear()
+    _loadingPaths.clear()
+
+    // Cancel active AI streaming and clear conversation state.
+    void window.electronAPI.agent.cancel()
+    const chatStore = useChatStore.getState()
+    chatStore.clearMessages()
+    chatStore.clearQuotes()
+    chatStore.setAgentStatus('idle')
+
+    // Clear open files and editor content so memory can be reclaimed.
+    set({ files: [], currentFile: null, isLoading: false })
+    useEditorStore.setState({
+      content: '',
+      previewContent: null,
+      selectedText: null,
+      selectedLineRange: null,
+      cursorLine: 0,
+      cursorColumn: 0,
+      isDirty: false,
+    })
+    useEditorStore.getState().bumpEditorHydration()
+  },
 
   openFolder: async () => {
     const { setLoading } = get()
@@ -253,6 +310,18 @@ export const useFileStore = create<FileState>((set, get) => ({
   },
 
   loadFileContent: async (filePath: string) => {
+    // Keep only the latest stream alive; stale streams waste memory and listeners.
+    for (const [path, unsub] of _streamUnsubs) {
+      if (path === filePath) continue
+      try {
+        unsub()
+      } catch {
+        // best effort
+      }
+      _streamUnsubs.delete(path)
+      _loadingPaths.delete(path)
+    }
+
     // Dedup: skip if this path is already being loaded
     if (_loadingPaths.has(filePath)) return
     _loadingPaths.add(filePath)
@@ -265,6 +334,15 @@ export const useFileStore = create<FileState>((set, get) => ({
     useEditorStore.getState().bumpEditorHydration()
 
     const cleanup = () => {
+      const unsub = _streamUnsubs.get(filePath)
+      if (unsub) {
+        try {
+          unsub()
+        } catch {
+          // best effort
+        }
+        _streamUnsubs.delete(filePath)
+      }
       setLoading(false)
       _loadingPaths.delete(filePath)
     }
@@ -284,24 +362,65 @@ export const useFileStore = create<FileState>((set, get) => ({
       if (fileSize > LARGE_FILE) {
         // ── Streaming path for large files (>10MB) ──
         const editorStore = useEditorStore.getState()
-        let accumulated = ''
+        const chunks: string[] = []
+        let bufferedChars = 0
+        let flushTimer: ReturnType<typeof setTimeout> | null = null
+        const FLUSH_EVERY_CHARS = 512 * 1024
 
-        window.electronAPI.file.readStream(filePath, (chunk: string | null) => {
-          if (chunk === null) {
-            // End of stream — 若期间已切换到其它文件则丢弃
-            if (get().currentFile === filePath) {
-              editorStore.setMode(inferMode(filePath))
-              editorStore.markClean()
+        const flushToEditor = (force = false) => {
+          if (!force && bufferedChars < FLUSH_EVERY_CHARS) return
+          bufferedChars = 0
+          if (get().currentFile === filePath) {
+            editorStore.setContent(chunks.join(''))
+          }
+        }
+
+        const scheduleFlush = () => {
+          if (flushTimer) return
+          flushTimer = setTimeout(() => {
+            flushTimer = null
+            flushToEditor()
+          }, 120)
+        }
+
+        const unsub = window.electronAPI.file.readStream(filePath, (chunk: unknown) => {
+          // Main process may send an error object; stop this stream safely.
+          if (chunk && typeof chunk === 'object') {
+            console.error('readStream error payload:', chunk)
+            if (flushTimer) {
+              clearTimeout(flushTimer)
+              flushTimer = null
             }
             cleanup()
             return
           }
-          accumulated += chunk
-          if (get().currentFile === filePath) {
-            editorStore.setContent(accumulated)
-            useEditorStore.getState().bumpEditorHydration()
+
+          if (chunk === null) {
+            if (flushTimer) {
+              clearTimeout(flushTimer)
+              flushTimer = null
+            }
+            flushToEditor(true)
+            // End of stream — 若期间已切换到其它文件则丢弃
+            if (get().currentFile === filePath) {
+              editorStore.setMode(inferMode(filePath))
+              editorStore.markClean()
+              useEditorStore.getState().bumpEditorHydration()
+            }
+            cleanup()
+            return
           }
+
+          if (typeof chunk !== 'string') {
+            return
+          }
+
+          chunks.push(chunk)
+          bufferedChars += chunk.length
+          flushToEditor()
+          scheduleFlush()
         })
+        _streamUnsubs.set(filePath, unsub)
         // Note: cleanup() is called in the end-of-stream callback above,
         // not here, because streaming is asynchronous.
       } else {

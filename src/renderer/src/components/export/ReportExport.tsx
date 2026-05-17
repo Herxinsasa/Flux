@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react'
+import { useFileStore } from '../../stores/fileStore'
 
 interface ReportExportProps {
   /** The markdown content to export */
   content: string
   /** Default filename shown in the save dialog */
   defaultName?: string
+  /** Button label in the chat footer */
+  buttonLabel?: string
 }
 
-export function ReportExport({ content, defaultName = 'analysis-report.md' }: ReportExportProps) {
+export function ReportExport({
+  content,
+  defaultName = 'analysis-report.md',
+  buttonLabel = '导出报告',
+}: ReportExportProps) {
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [savedPath, setSavedPath] = useState<string | null>(null)
 
@@ -27,6 +34,8 @@ export function ReportExport({ content, defaultName = 'analysis-report.md' }: Re
       if (result.success && result.data) {
         setSavedPath(result.data)
         setStatus('saved')
+        // 导出成功后刷新工作区文件夹
+        void useFileStore.getState().refreshWorkspaceFiles()
       } else {
         setStatus('idle')
       }
@@ -78,7 +87,7 @@ export function ReportExport({ content, defaultName = 'analysis-report.md' }: Re
           <polyline points="7 10 12 15 17 10" />
           <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
-        {status === 'saving' ? '导出中...' : '导出报告'}
+        {status === 'saving' ? '导出中...' : buttonLabel}
       </button>
     </div>
   )

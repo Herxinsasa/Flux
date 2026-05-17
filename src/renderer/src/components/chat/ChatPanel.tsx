@@ -73,6 +73,13 @@ function hasReportIntent(text: string): boolean {
   )
 }
 
+function hasProblemSummaryIntent(text: string): boolean {
+  const t = text.toLowerCase()
+  if (!t.trim()) return false
+  if (t.includes('/problem-summary')) return true
+  return /(问题总结|排查总结|故障复盘|问题沉淀|知识库条目|经验总结|总结报告)/i.test(t)
+}
+
 /** 用于 write_file 允许的目录前缀（与主进程 path.dirname 一致语义） */
 function parentDir(filePath: string): string {
   const m = filePath.match(/^(.*)[/\\][^/\\]+$/)
@@ -286,8 +293,46 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
   // Refs for stream lifecycle
   const streamUnsubRef = useRef<(() => void) | null>(null)
   const currentAiMessageIdRef = useRef<string | null>(null)
+  const pendingTextRef = useRef('')
+  const pendingReasoningRef = useRef('')
+  const flushTimerRef = useRef<number | null>(null)
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const isAtBottomRef = useRef(true)
+
+  const flushBufferedTokens = useCallback(() => {
+    if (flushTimerRef.current !== null) {
+      window.clearTimeout(flushTimerRef.current)
+      flushTimerRef.current = null
+    }
+
+    if (!pendingTextRef.current && !pendingReasoningRef.current) {
+      return
+    }
+
+    if (!currentAiMessageIdRef.current) {
+      currentAiMessageIdRef.current = startAiMessage()
+    }
+
+    const msgId = currentAiMessageIdRef.current
+    if (!msgId) return
+
+    if (pendingTextRef.current) {
+      appendToken(msgId, pendingTextRef.current)
+      pendingTextRef.current = ''
+    }
+    if (pendingReasoningRef.current) {
+      appendReasoningToken(msgId, pendingReasoningRef.current)
+      pendingReasoningRef.current = ''
+    }
+  }, [appendReasoningToken, appendToken, startAiMessage])
+
+  const scheduleBufferedFlush = useCallback(() => {
+    if (flushTimerRef.current !== null) return
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null
+      flushBufferedTokens()
+    }, 40)
+  }, [flushBufferedTokens])
 
   /* ── Build flattened item list for Virtuoso ── */
 
@@ -297,8 +342,8 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       result.push({ type: 'message', message: msg })
       if (msg.role === 'ai' && msg.toolCalls && msg.toolCalls.length > 0) {
         for (const tc of msg.toolCalls) {
-          // 检索完成后不再占用列表（用户无需看到检索参数与原始输出）
-          if (tc.name === 'read_file') {
+          // 文件读取/文件信息属于内部检索步骤，默认不展示工具卡片。
+          if (tc.name === 'read_file' || tc.name === 'get_file_info') {
             continue
           }
           // 联网抓取属于内部检索步骤，默认不展示工具卡片。
@@ -325,21 +370,17 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
 
   /* ── Report export: show when AI analysis complete + has tool_results ── */
 
-  const reportInfo = useMemo<{ show: boolean; content: string }>(() => {
-    if (agentStatus !== 'idle') return { show: false, content: '' }
-    if (!reportSourceMessageId) return { show: false, content: '' }
+  const reportInfo = useMemo<{ show: boolean; content: string; defaultName: string; buttonLabel: string }>(() => {
+    if (agentStatus !== 'idle') return { show: false, content: '', defaultName: 'analysis-report.md', buttonLabel: '导出报告' }
+    if (!reportSourceMessageId) return { show: false, content: '', defaultName: 'analysis-report.md', buttonLabel: '导出报告' }
 
-    // Only show report export for the AI message completed in the current turn.
-    const lastAiWithResults = messages.find(
-      (m) =>
-        m.id === reportSourceMessageId &&
-        m.role === 'ai' &&
-        m.toolCalls &&
-        m.toolCalls.length > 0 &&
-        m.toolCalls.some((tc) => tc.output !== undefined),
+    const currentAiMessage = messages.find(
+      (m) => m.id === reportSourceMessageId && m.role === 'ai',
     ) as Message | undefined
 
-    if (!lastAiWithResults) return { show: false, content: '' }
+    if (!currentAiMessage || !currentAiMessage.content.trim()) {
+      return { show: false, content: '', defaultName: 'analysis-report.md', buttonLabel: '导出报告' }
+    }
 
     // Only show export when the corresponding user turn explicitly requested report-style output.
     const aiIndex = messages.findIndex((m) => m.id === reportSourceMessageId)
@@ -348,25 +389,32 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         ? [...messages.slice(0, aiIndex)].reverse().find((m) => m.role === 'user')
         : undefined
 
-    const reportRequested = hasReportIntent(prevUser?.content ?? '') || hasReportIntent(prevUser?.contextFootnote ?? '')
-    if (!reportRequested) return { show: false, content: '' }
+    const reportRequested =
+      hasReportIntent(prevUser?.content ?? '') || hasReportIntent(prevUser?.contextFootnote ?? '')
+    const problemSummaryRequested =
+      hasProblemSummaryIntent(prevUser?.content ?? '') ||
+      hasProblemSummaryIntent(prevUser?.contextFootnote ?? '')
+
+    if (!reportRequested && !problemSummaryRequested) {
+      return { show: false, content: '', defaultName: 'analysis-report.md', buttonLabel: '导出报告' }
+    }
 
     // Build report content from the AI message
     const lines: string[] = []
-    lines.push('# 日志分析报告')
+    lines.push(problemSummaryRequested ? '# 问题总结' : '# 日志分析报告')
     lines.push('')
     lines.push(`> 生成时间: ${new Date().toLocaleString('zh-CN')}`)
     lines.push('')
-    lines.push(lastAiWithResults.content)
+    lines.push(currentAiMessage.content)
     lines.push('')
 
     // Append tool call summary as appendix
-    if (lastAiWithResults.toolCalls && lastAiWithResults.toolCalls.length > 0) {
+    if (currentAiMessage.toolCalls && currentAiMessage.toolCalls.length > 0) {
       lines.push('---')
       lines.push('')
-      lines.push('## 附录：分析工具调用记录')
+      lines.push(problemSummaryRequested ? '## 附录：本轮工具调用记录' : '## 附录：分析工具调用记录')
       lines.push('')
-      for (const tc of lastAiWithResults.toolCalls) {
+      for (const tc of currentAiMessage.toolCalls) {
         if (tc.name === 'search_content') continue
         lines.push(`### \`${tc.name}\``)
         if (tc.output !== undefined) {
@@ -384,7 +432,12 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       }
     }
 
-    return { show: true, content: lines.join('\n') }
+    return {
+      show: true,
+      content: lines.join('\n'),
+      defaultName: problemSummaryRequested ? 'problem-summary.md' : 'analysis-report.md',
+      buttonLabel: '导出报告',
+    }
   }, [agentStatus, messages, reportSourceMessageId])
 
   /* ── Is the last AI message still streaming? ── */
@@ -403,19 +456,14 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
 
       switch (event.type) {
         case 'text_delta': {
-          // Ensure we have an AI message to append to
-          if (!currentAiMessageIdRef.current) {
-            currentAiMessageIdRef.current = startAiMessage()
-          }
-          appendToken(currentAiMessageIdRef.current, event.text)
+          pendingTextRef.current += event.text
+          scheduleBufferedFlush()
           break
         }
 
         case 'reasoning_delta': {
-          if (!currentAiMessageIdRef.current) {
-            currentAiMessageIdRef.current = startAiMessage()
-          }
-          appendReasoningToken(currentAiMessageIdRef.current, event.text)
+          pendingReasoningRef.current += event.text
+          scheduleBufferedFlush()
           break
         }
 
@@ -482,6 +530,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         }
 
         case 'done': {
+          flushBufferedTokens()
           const completedMsgId = currentAiMessageIdRef.current
           if (completedMsgId) {
             setReportSourceMessageId(completedMsgId)
@@ -498,6 +547,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         }
 
         case 'error': {
+          flushBufferedTokens()
           setAgentStatus('error')
           setProgressHint('')
           // Append error to current AI message if one exists
@@ -537,13 +587,14 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       }
     },
     [
-      startAiMessage,
       appendToken,
       appendReasoningToken,
       addToolCallToAiMessage,
       previewChange,
       updateToolCallResult,
       finalizePendingToolCalls,
+      flushBufferedTokens,
+      scheduleBufferedFlush,
       setAgentStatus,
     ],
   )
@@ -551,6 +602,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
   /* ── Build IPC context：默认仅当前预览/激活文件（无 @ 或未打开标签时不混入其它已打开标签正文） ── */
 
   const MAX_TAB_READ_CHARS = 500_000
+  const MAX_ACTIVE_FILE_CONTEXT_CHARS = 120_000
 
   const buildAgentContextAsync = useCallback(async () => {
     const currentFile = useFileStore.getState().currentFile
@@ -569,7 +621,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         openFiles = [
           {
             path: currentFile,
-            content,
+            content: content.slice(0, MAX_ACTIVE_FILE_CONTEXT_CHARS),
             selectedText: selectedText ?? undefined,
           },
         ]
@@ -650,6 +702,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
 
       // Cancel any existing stream
       if (currentAiMessageIdRef.current) {
+        flushBufferedTokens()
         finalizePendingToolCalls(currentAiMessageIdRef.current, '新的请求已开始，上一轮已中断')
       }
       void window.electronAPI.agent.cancel()
@@ -787,6 +840,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       sendMessage,
       handleStreamEvent,
       buildAgentContextAsync,
+      flushBufferedTokens,
       setAgentStatus,
       finalizePendingToolCalls,
     ],
@@ -796,6 +850,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
 
   const handleCancel = useCallback(() => {
     window.electronAPI.agent.cancel()
+    flushBufferedTokens()
     if (currentAiMessageIdRef.current) {
       finalizePendingToolCalls(currentAiMessageIdRef.current, '用户取消了本次请求')
     }
@@ -806,7 +861,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
     setProgressHint('')
     setAgentStatus('idle')
     currentAiMessageIdRef.current = null
-  }, [setAgentStatus, finalizePendingToolCalls])
+  }, [flushBufferedTokens, setAgentStatus, finalizePendingToolCalls])
 
   /* ── Suggestion chip handler ── */
 
@@ -821,6 +876,10 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
 
   useEffect(() => {
     return () => {
+      if (flushTimerRef.current !== null) {
+        window.clearTimeout(flushTimerRef.current)
+        flushTimerRef.current = null
+      }
       void window.electronAPI.agent.cancel()
       if (streamUnsubRef.current) {
         streamUnsubRef.current()
@@ -842,7 +901,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
 
   const latestAiHasVisibleTools = Boolean(
     latestAiMessage?.toolCalls?.some((tc) => {
-      if (tc.name === 'read_file') return false
+      if (tc.name === 'read_file' || tc.name === 'get_file_info') return false
       if (tc.name === 'fetch_webpage') return false
       if (tc.name === 'search_content' && tc.output !== undefined) return false
       return true
@@ -1016,7 +1075,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
                   item.message.role === 'ai' &&
                   Boolean(
                     item.message.toolCalls?.some((tc) => {
-                      if (tc.name === 'read_file') return false
+                      if (tc.name === 'read_file' || tc.name === 'get_file_info') return false
                       if (tc.name === 'fetch_webpage') return false
                       if (tc.name === 'search_content' && tc.output !== undefined) return false
                       if (tc.name === 'write_file' && agentStatus !== 'idle') return false
@@ -1029,7 +1088,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
                     return (
                       <div className="chat-list-item" style={gapStyle}>
                         <div className="msg-row msg-row--ai">
-                          <div className="msg-ai-tool-anchor">AI 文件修改建议</div>
+                          <div className="msg-ai-tool-anchor">AI 工具执行中</div>
                         </div>
                       </div>
                     )
@@ -1082,7 +1141,13 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       </div>
 
       {/* Report export button — appears after analysis completes with tool results */}
-      {reportInfo.show && <ReportExport content={reportInfo.content} />}
+      {reportInfo.show && (
+        <ReportExport
+          content={reportInfo.content}
+          defaultName={reportInfo.defaultName}
+          buttonLabel={reportInfo.buttonLabel}
+        />
+      )}
 
       {/* Suggestion chips shown above input when there are messages */}
       {showSuggestions && messages.length === 0 && !isRunning && (

@@ -9,6 +9,7 @@ const electronAPI = {
     open: () => ipcRenderer.invoke(IPC_CHANNELS.FILE_OPEN),
     create: () => ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE),
     openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.FILE_OPEN_FOLDER),
+    listWorkspaceFiles: (root: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_WORKSPACE_FILES, root),
     read: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath),
     readStream: (filePath: string, callback: (chunk: string | null) => void) => {
       const channel = `${IPC_CHANNELS.FILE_READ_STREAM}:${filePath}`
@@ -18,6 +19,7 @@ const electronAPI = {
       ipcRenderer.send(IPC_CHANNELS.FILE_READ_STREAM, filePath)
       // Return an unsubscribe function
       return () => {
+        ipcRenderer.send(`${IPC_CHANNELS.FILE_READ_STREAM}:cancel:${filePath}`)
         ipcRenderer.removeListener(channel, listener)
       }
     },
