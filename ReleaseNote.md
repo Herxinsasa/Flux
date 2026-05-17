@@ -1,9 +1,8 @@
 # Release Notes
 
-## 1.0.1 (2026-05-13)
+## 1.0.1 (2026-05-17)
 
 ### Added
-- ISV 定制版：品牌元数据（ISVision 杭州）、appId 更新为 com.isv-tech.flux
 - 内置 Skill（flux-core、problem-summary、analysis-report）打包入 asar
 - 设置页”自定义”提供商新增”协议类型”下拉，可在 OpenAI Chat Completions 与 Anthropic Messages 之间切换。
 - 协议下拉选项新增端点提示（`/v1/chat/completions`、`/v1/messages`），便于快速校验对接协议。
