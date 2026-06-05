@@ -4,6 +4,9 @@ import { registerAgentHandlers } from './agent-handlers'
 import { registerSkillHandlers } from './skill-handlers'
 import { registerExportHandlers } from './export-handlers'
 import { registerEditorHandlers } from './editor-handlers'
+import { registerLogHandlers } from './log-handlers'
+import { registerSessionHandlers } from './session-handlers'
+import { registerShellHandlers } from './shell-handlers'
 import { SkillManager } from '../skill/skill-manager'
 
 export function registerAllHandlers(): void {
@@ -16,4 +19,7 @@ export function registerAllHandlers(): void {
   registerEditorHandlers()
   registerSkillHandlers()
   registerExportHandlers()
+  registerLogHandlers()
+  registerSessionHandlers()
+  registerShellHandlers()
 }

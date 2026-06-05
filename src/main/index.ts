@@ -4,6 +4,7 @@ import { join } from 'path'
 import { registerAllHandlers } from './ipc/index'
 import log from './logger'
 import { setupErrorHandlers } from './error-handler'
+import { registerLocalFileProtocol } from './local-file-protocol'
 import { syncNativeChromeTheme } from './native-theme'
 import store from './store/index'
 
@@ -33,6 +34,7 @@ function resolveWindowIcon(): string | undefined {
 
 // 异常处理器必须在最早阶段注册，确保初始化期异常也能被捕获
 setupErrorHandlers()
+registerLocalFileProtocol()
 
 function createWindow(): void {
   const theme = store.get('theme')

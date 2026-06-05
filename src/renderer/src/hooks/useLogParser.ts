@@ -36,6 +36,13 @@ export function parseLogContent(content: string): LogLine[] {
 }
 
 /**
+ * Parse an array of log lines (windowed / indexed view).
+ */
+export function parseLogLines(lines: string[], startLineNumber = 1): LogLine[] {
+  return lines.map((line, i) => parseLogLine(line, startLineNumber + i))
+}
+
+/**
  * React hook: memoised parsing of log content.
  * Re-parses only when content changes.
  */

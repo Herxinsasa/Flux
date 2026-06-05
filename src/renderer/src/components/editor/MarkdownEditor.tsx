@@ -8,7 +8,13 @@ import { MdOutlinePanel } from './MdOutlinePanel'
 import { findNearestHeadingIdForLine, type MdOutlineItem } from '../../utils/markdownHeadingIds'
 
 /** 分栏视图 — 左源码驱动右预览；右侧手动滚动可暂停同步，标题/光标变化时重新对齐 */
-function SplitView({ sourceContent }: { sourceContent: string }) {
+function SplitView({
+  sourceContent,
+  baseFilePath,
+}: {
+  sourceContent: string
+  baseFilePath: string | null
+}) {
   const cursorLine = useEditorStore((s) => s.cursorLine)
   const jumpOutlineTick = useEditorStore((s) => s.jumpOutlineTick)
   const jumpOutlineLine = useEditorStore((s) => s.jumpOutlineLine)
@@ -131,6 +137,7 @@ function SplitView({ sourceContent }: { sourceContent: string }) {
       >
         <MdPreview
           content={sourceContent}
+          baseFilePath={baseFilePath}
           scrollable={false}
           scrollToHeadingId={scrollTarget.id}
           scrollRequestKey={scrollTarget.key}
@@ -317,11 +324,11 @@ export function MarkdownEditor() {
                   boxSizing: 'border-box',
                 }}
               >
-                <MdPreview content={sourceContent} scrollable={false} />
+                <MdPreview content={sourceContent} baseFilePath={currentFile} scrollable={false} />
               </div>
             </div>
           ) : markdownEditSurface === 'split' ? (
-            <SplitView sourceContent={sourceContent} />
+            <SplitView sourceContent={sourceContent} baseFilePath={currentFile} />
           ) : (
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               <EditorPane hideFileBar />

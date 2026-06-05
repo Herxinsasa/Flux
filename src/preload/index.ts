@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC_CHANNELS } from '../shared/ipc-channels'
+import { buildLocalMediaUrl } from '../shared/local-media-url'
 
 const electronAPI = {
   app: {
@@ -92,6 +93,24 @@ const electronAPI = {
   export: {
     report: (content: string, defaultName: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.EXPORT_REPORT, content, defaultName),
+  },
+  log: {
+    getIndex: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.LOG_GET_INDEX, filePath),
+    readLines: (filePath: string, offset: number, limit: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.LOG_READ_LINES, filePath, offset, limit),
+    evictIndex: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.LOG_EVICT_INDEX, filePath),
+  },
+  workspace: {
+    readSession: (workspaceRoot: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_READ, workspaceRoot),
+    writeSession: (workspaceRoot: string, payload: unknown) =>
+      ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_WRITE, workspaceRoot, payload),
+  },
+  media: {
+    toLocalUrl: (absolutePath: string) => buildLocalMediaUrl(absolutePath),
+  },
+  shell: {
+    openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_OPEN_EXTERNAL, url),
   },
 }
 

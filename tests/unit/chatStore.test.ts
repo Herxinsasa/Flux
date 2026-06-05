@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 
 import { useChatStore } from '../../src/renderer/src/stores/chatStore'
 import type { Message, ToolCallEntry } from '../../src/renderer/src/stores/chatStore'
+import { MAX_UI_MESSAGES, MAX_UI_TOOL_OUTPUT_CHARS } from '../../src/shared/context-budget'
 
 describe('useChatStore', () => {
   beforeEach(() => {
@@ -206,6 +207,42 @@ describe('useChatStore', () => {
 
       const msg = useChatStore.getState().messages.find((m) => m.id === id)
       expect(msg?.toolCalls?.[0].isError).toBe(true)
+    })
+  })
+
+  describe('ui message prune', () => {
+    it('keeps at most MAX_UI_MESSAGES entries', () => {
+      for (let i = 0; i < MAX_UI_MESSAGES + 5; i++) {
+        useChatStore.getState().sendMessage(`msg-${i}`)
+      }
+      expect(useChatStore.getState().messages.length).toBeLessThanOrEqual(MAX_UI_MESSAGES)
+      expect(useChatStore.getState().messages[0]?.content).toBe('msg-5')
+    })
+  })
+
+  describe('summarizeToolOutputs', () => {
+    it('truncates long tool output strings after agent idle', () => {
+      const id = useChatStore.getState().startAiMessage()
+      useChatStore.getState().addToolCallToAiMessage(id, {
+        id: 'tc-1',
+        name: 'read_file',
+        input: {},
+      })
+      useChatStore.getState().updateToolCallResult(id, 'tc-1', 'x'.repeat(2000))
+      useChatStore.getState().summarizeToolOutputs()
+      const out = useChatStore.getState().messages.find((m) => m.id === id)?.toolCalls?.[0]
+        ?.output
+      expect(typeof out).toBe('string')
+      expect((out as string).length).toBeLessThanOrEqual(MAX_UI_TOOL_OUTPUT_CHARS + 32)
+    })
+  })
+
+  describe('newConversation', () => {
+    it('clears messages but is separate from clearMessages semantically', () => {
+      useChatStore.getState().sendMessage('hello')
+      useChatStore.getState().newConversation()
+      expect(useChatStore.getState().messages).toHaveLength(0)
+      expect(useChatStore.getState().agentStatus).toBe('idle')
     })
   })
 })

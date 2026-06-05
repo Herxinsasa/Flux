@@ -1,5 +1,5 @@
 import { useMemo, Fragment, useCallback, useState } from 'react'
-import { Copy, Check } from 'lucide-react'
+import { Copy, Check, Pin } from 'lucide-react'
 import type { Message } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useFileStore } from '../../stores/fileStore'
@@ -8,6 +8,8 @@ import { MdPreview } from '../editor/MdPreview'
 interface MessageLineProps {
   message: Message
   isStreaming: boolean
+  isPinned?: boolean
+  onPin?: () => void
 }
 
 /** Regex to detect file:line references like `src/app.ts:42` or `file.md:10` */
@@ -50,7 +52,7 @@ function parseContent(content: string): TextSegment[] {
   return segments
 }
 
-export function MessageLine({ message, isStreaming }: MessageLineProps) {
+export function MessageLine({ message, isStreaming, isPinned, onPin }: MessageLineProps) {
   const isUser = message.role === 'user'
   const segments = useMemo(() => parseContent(message.content), [message.content])
   const [copied, setCopied] = useState(false)
@@ -112,15 +114,22 @@ export function MessageLine({ message, isStreaming }: MessageLineProps) {
                 ),
               )}
             </div>
-            {message.contextFootnote ? (
-              <div className="msg-context-footnote mt-1.5 text-[11px] text-[var(--text-hint)] font-mono break-all leading-snug">
-                {message.contextFootnote}
-              </div>
-            ) : null}
           </>
         ) : (
           <>
             <div className="msg-bubble-ai-toolbar">
+              {onPin && !isStreaming && message.content.trim() ? (
+                <button
+                  type="button"
+                  className="msg-copy-btn"
+                  onClick={onPin}
+                  title={isPinned ? '已钉住结论' : '钉住结论'}
+                  aria-label={isPinned ? '已钉住结论' : '钉住此回复中的结论'}
+                  style={isPinned ? { color: 'var(--accent)' } : undefined}
+                >
+                  <Pin size={14} strokeWidth={2} aria-hidden fill={isPinned ? 'currentColor' : 'none'} />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="msg-copy-btn"

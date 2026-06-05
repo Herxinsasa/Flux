@@ -12,6 +12,11 @@ interface ChatInputProps {
   onCancel: () => void
   isRunning: boolean
   disabled?: boolean
+  onDraftStatsChange?: (stats: {
+    textChars: number
+    attachmentChars: number
+    skillCount: number
+  }) => void
   /** 工作区扫描 + 已打开文件，供 @ 选择 */
   mentionFiles: MentionFileEntry[]
   /** 当前预览文件名（与引用脚注一致） */
@@ -25,6 +30,7 @@ export function ChatInput({
   onCancel,
   isRunning,
   disabled,
+  onDraftStatsChange,
   mentionFiles,
   quoteSourceLabel,
   slashSkills,
@@ -65,6 +71,14 @@ export function ChatInput({
       textareaRef.current?.focus()
     }
   }, [isRunning, text])
+
+  useEffect(() => {
+    onDraftStatsChange?.({
+      textChars: text.length,
+      attachmentChars: attachments.reduce((sum, p) => sum + p.length, 0),
+      skillCount: skillInvocations.length,
+    })
+  }, [text, attachments, skillInvocations, onDraftStatsChange])
 
   const syncAtMenu = useCallback((value: string, caret: number) => {
     const before = value.slice(0, caret)

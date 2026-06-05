@@ -51,6 +51,11 @@ interface EditorState {
   markdownEditSurface: MarkdownEditSurface
   setMarkdownEditSurface: (surface: MarkdownEditSurface) => void
   toggleMarkdownEditSurface: () => void
+  /** P2: large .log — Virtuoso loads lines via IPC instead of editorStore.content */
+  logIndexedPath: string | null
+  logTotalLines: number
+  setLogIndexedView: (path: string, totalLines: number) => void
+  clearLogIndexedView: () => void
   /**
    * 仅在外部替换编辑器正文时递增（磁盘加载、切换文件时的清空/写入）。
    * MD 预览通过订阅该 epoch + ref.setMarkdown 同步，避免随按键把 Lexical 整文档重灌。
@@ -92,6 +97,13 @@ export const useEditorStore = create<EditorState>((set) => ({
   changeHighlightEndLine: 0,
   markdownEditSurface: 'wysiwyg',
   editorHydrationEpoch: 0,
+  logIndexedPath: null,
+  logTotalLines: 0,
+
+  setLogIndexedView: (path, totalLines) =>
+    set({ logIndexedPath: path, logTotalLines: totalLines, content: '', isDirty: false }),
+
+  clearLogIndexedView: () => set({ logIndexedPath: null, logTotalLines: 0 }),
 
   bumpEditorHydration: () =>
     set((s) => ({ editorHydrationEpoch: s.editorHydrationEpoch + 1 })),

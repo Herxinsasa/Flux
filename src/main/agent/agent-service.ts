@@ -11,12 +11,19 @@ import log from '../logger'
 import store from '../store'
 import { isPathUnderWritableRoots } from './writable-roots'
 import {
-  readFile as readFileSvc,
+  readFileLineRange,
   getFileInfo,
 } from '../services/file-service'
+import {
+  clampToolResult,
+  READ_FILE_DEFAULT_LIMIT,
+  READ_FILE_MAX_LINES,
+  SEARCH_CONTENT_MAX_LINES,
+} from './tool-result-clamp'
+import { MAX_TOOL_CHAT_CHARS } from '../../shared/context-budget'
 
 const WEB_FETCH_DEFAULT_TIMEOUT_MS = 12_000
-const WEB_FETCH_MAX_OUTPUT_CHARS = 16_000
+const WEB_FETCH_MAX_OUTPUT_CHARS = MAX_TOOL_CHAT_CHARS
 
 // ----------------------------------------------------------------- Tool definitions
 
@@ -218,15 +225,20 @@ function executeTool(
         if (!fp) return { content: 'Error: filePath is required', isError: true }
         if (!fs.existsSync(fp)) return { content: `Error: file not found: ${fp}`, isError: true }
 
-        const { content } = readFileSvc(fp)
-        const lines = content.split('\n')
-        const start = (inp.offset ?? 0)
-        const end = inp.limit ? start + inp.limit : lines.length
-        const snippet = lines.slice(start, end).join('\n')
+        const lineLimit = inp.limit != null
+          ? Math.min(Math.max(1, Math.floor(inp.limit)), READ_FILE_MAX_LINES)
+          : READ_FILE_DEFAULT_LIMIT
+        const offset = Math.max(0, Math.floor(inp.offset ?? 0))
+
+        const range = readFileLineRange(fp, offset, lineLimit)
+        const meta = `[read ${path.basename(fp)} L${range.startLine}-${range.endLine}, total ${range.totalLines} lines${range.truncated ? ', truncated' : ''}]`
+        const snippet = range.content ? `${range.content}\n\n${meta}` : meta
+
         emitProgress('done', '读取文件完成', {
           filePath: fp,
-          totalLines: lines.length,
-          returnedLines: Math.max(0, end - start),
+          totalLines: range.totalLines,
+          returnedLines: range.endLine - range.startLine + 1,
+          truncated: range.truncated,
         })
         return { content: snippet }
       }
@@ -288,7 +300,7 @@ function executeTool(
         // Known binary / non-text extensions to skip
         const BINARY_EXTS = /\.(exe|dll|pdb|obj|bin|o|a|so|dylib|png|jpe?g|gif|ico|bmp|webp|woff2?|ttf|eot|zip|gz|tar|7z|bz2|xz|pdf|mp[34]|avi|mov|mkv|class|jar)$/i
 
-        const MAX_RESULT_LINES = 50000
+        const MAX_RESULT_LINES = SEARCH_CONTENT_MAX_LINES
         const results: string[] = []
         let scannedFiles = 0
 
@@ -372,12 +384,19 @@ function executeTool(
         }
 
         const output = results.slice(0, MAX_RESULT_LINES).join('\n')
+        const hitCount = results.length
+        const suffix =
+          hitCount >= MAX_RESULT_LINES
+            ? `\n\n[search "${pattern}" → ${hitCount}+ hits, showing ${MAX_RESULT_LINES}]`
+            : hitCount > 0
+              ? `\n\n[search "${pattern}" → ${hitCount} hit(s)]`
+              : ''
         emitProgress('done', '搜索完成', {
           scannedFiles,
-          matchedLines: results.length,
-          reachedLimit: results.length >= MAX_RESULT_LINES,
+          matchedLines: hitCount,
+          reachedLimit: hitCount >= MAX_RESULT_LINES,
         })
-        return { content: output || '(no matches)' }
+        return { content: (output || '(no matches)') + suffix }
       }
 
       case 'get_file_info': {
@@ -490,6 +509,14 @@ function executeTool(
 
 // ----------------------------------------------------------------- Agent loop
 
+function releaseToolMessagePayloads(messages: ChatMessage[]): void {
+  for (const m of messages) {
+    if (m.role === 'tool' && m.content.length > 256) {
+      m.content = `[tool output released after agent run, was ${m.content.length} chars]`
+    }
+  }
+}
+
 export interface AgentRunParams {
   providerId?: string
   messages: ChatMessage[]
@@ -553,100 +580,98 @@ export async function* runAgent(
   const chatMessages: ChatMessage[] = [...params.messages]
   const writableRoots = params.writableRoots ?? []
 
-  for (let round = 0; round <= maxRounds; round++) {
-    // Check for external cancellation before each round
-    if (signal?.aborted) {
-      yield { type: 'error', message: 'Agent was cancelled' }
-      return
-    }
-
-    const stream = client.chat({
-      model,
-      messages: chatMessages,
-      system: params.system,
-      tools,
-      maxTokens: params.maxTokens,
-    })
-
-    let hasToolUse = false
-    let roundReasoning = ''
-    const toolCalls: Array<{
-      id: string
-      name: string
-      input: unknown
-    }> = []
-
-    for await (const event of stream) {
-      if (event.type === 'text_delta') {
-        yield event
-      } else if (event.type === 'reasoning_delta') {
-        roundReasoning += event.text
-        yield event
-      } else if (event.type === 'tool_use') {
-        hasToolUse = true
-        toolCalls.push({ id: event.id, name: event.name, input: event.input })
-        yield event
-      } else if (event.type === 'message_stop') {
-        if (!hasToolUse) {
-          yield event
-          return // Done — final text response
-        }
-      } else if (event.type === 'error') {
-        yield event
-        return
-      }
-    }
-
-    // Process tool calls
-    if (hasToolUse && toolCalls.length > 0) {
-      // Check for cancellation before executing tools
+  try {
+    for (let round = 0; round <= maxRounds; round++) {
       if (signal?.aborted) {
         yield { type: 'error', message: 'Agent was cancelled' }
         return
       }
 
-      // Add the assistant tool_use message(s)；思考模式需附带本轮 reasoning
-      let firstToolMsg = true
-      for (const tc of toolCalls) {
-        chatMessages.push({
-          role: 'assistant',
-          content: '',
-          reasoningContent: firstToolMsg && roundReasoning ? roundReasoning : undefined,
-          toolCallId: tc.id,
-          toolName: tc.name,
-          input: tc.input,
-        })
-        firstToolMsg = false
-      }
-      roundReasoning = ''
+      const stream = client.chat({
+        model,
+        messages: chatMessages,
+        system: params.system,
+        tools,
+        maxTokens: params.maxTokens,
+      })
 
-      // Execute each tool and yield result
-      for (const tc of toolCalls) {
-        const result = await executeTool(tc.name, tc.input, writableRoots, params.onToolProgress)
+      let hasToolUse = false
+      let roundReasoning = ''
+      const toolCalls: Array<{
+        id: string
+        name: string
+        input: unknown
+      }> = []
 
-        yield {
-          type: 'tool_result',
-          id: tc.id,
-          content: result.content,
-          isError: result.isError,
+      for await (const event of stream) {
+        if (event.type === 'text_delta') {
+          yield event
+        } else if (event.type === 'reasoning_delta') {
+          roundReasoning += event.text
+          yield event
+        } else if (event.type === 'tool_use') {
+          hasToolUse = true
+          toolCalls.push({ id: event.id, name: event.name, input: event.input })
+          yield event
+        } else if (event.type === 'message_stop') {
+          if (!hasToolUse) {
+            yield event
+            return
+          }
+        } else if (event.type === 'error') {
+          yield event
+          return
         }
-        chatMessages.push({
-          role: 'tool',
-          content: result.content,
-          toolCallId: tc.id,
-        })
       }
-      // Continue to next round with tool results
-      continue
+
+      if (hasToolUse && toolCalls.length > 0) {
+        if (signal?.aborted) {
+          yield { type: 'error', message: 'Agent was cancelled' }
+          return
+        }
+
+        let firstToolMsg = true
+        for (const tc of toolCalls) {
+          chatMessages.push({
+            role: 'assistant',
+            content: '',
+            reasoningContent: firstToolMsg && roundReasoning ? roundReasoning : undefined,
+            toolCallId: tc.id,
+            toolName: tc.name,
+            input: tc.input,
+          })
+          firstToolMsg = false
+        }
+        roundReasoning = ''
+
+        for (const tc of toolCalls) {
+          const result = await executeTool(tc.name, tc.input, writableRoots, params.onToolProgress)
+          const clamped = clampToolResult(tc.name, result.content, result.isError)
+
+          yield {
+            type: 'tool_result',
+            id: tc.id,
+            content: result.content,
+            isError: result.isError,
+          }
+          chatMessages.push({
+            role: 'tool',
+            content: clamped,
+            toolCallId: tc.id,
+          })
+        }
+        continue
+      }
+
+      yield { type: 'message_stop' }
+      return
     }
 
-    // No tool use — done
-    yield { type: 'message_stop' }
-    return
+    yield { type: 'error', message: 'Maximum tool round-trips reached. Stopping agent.' }
+  } finally {
+    releaseToolMessagePayloads(chatMessages)
+    activeClient = null
   }
-
-  // Exceeded max rounds
-  yield { type: 'error', message: 'Maximum tool round-trips reached. Stopping agent.' }
 }
 
 // ----------------------------------------------------------------- Singleton state for cancellation

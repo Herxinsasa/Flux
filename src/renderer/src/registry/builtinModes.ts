@@ -2,6 +2,14 @@ import { registerMode } from './editorModeRegistry'
 import { EditorPane } from '../components/editor/EditorPane'
 import { MarkdownEditor } from '../components/editor/MarkdownEditor'
 
+// Log mode — align behavior with txt/cpp by using CodeMirror editor.
+registerMode({
+  mode: 'log',
+  component: EditorPane,
+  label: 'Log Editor',
+  extensions: ['.log'],
+})
+
 // Text mode (F10)
 registerMode({
   mode: 'text',
@@ -9,7 +17,6 @@ registerMode({
   label: 'Text Editor',
   extensions: [
     '.txt', '.csv', '.yaml', '.yml',
-    '.log',
     '.sh', '.bat', '.cfg', '.ini', '.conf', '.env',
     /* 源码：走 EditorPane + languageFromPath 语法高亮 */
     '.cpp', '.cc', '.cxx', '.c', '.h', '.hpp', '.hh', '.ino',

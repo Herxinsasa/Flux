@@ -19,8 +19,8 @@ describe('inferMode', () => {
     expect(inferMode('.json')).toBe('json')
   })
 
-  it("infers 'text' for .log extension", () => {
-    expect(inferMode('.log')).toBe('text')
+  it("infers 'log' for .log extension", () => {
+    expect(inferMode('.log')).toBe('log')
   })
 
   it("infers 'text' for .txt extension", () => {

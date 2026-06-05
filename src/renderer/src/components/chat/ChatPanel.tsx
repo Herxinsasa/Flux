@@ -5,6 +5,7 @@ import type { VirtuosoHandle } from 'react-virtuoso'
 
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useChatStore } from '../../stores/chatStore'
+import { useSessionContextStore } from '../../stores/sessionContextStore'
 import { useFileStore } from '../../stores/fileStore'
 import { useEditorStore } from '../../stores/editorStore'
 import type { AgentStatus, Message } from '../../stores/chatStore'
@@ -13,12 +14,34 @@ import { MessageLine } from './MessageLine'
 import { ToolCallCard } from './ToolCallCard'
 import { SuggestionChips } from './SuggestionChips'
 import { ChatInput } from './ChatInput'
+import { ChatContextBar } from './ChatContextBar'
+import { PinnedFactsBar } from './PinnedFactsBar'
 import { ReportExport } from '../export/ReportExport'
 import { useEditorChatBridge } from '../../hooks/useEditorChatBridge'
 import type { PreviewChangeData } from '../../hooks/useEditorChatBridge'
 import { marginBottomAfterItem, type ChatItem } from './chatListSpacing'
 import { QuietSearchToolRow } from './QuietSearchToolRow'
 import type { SkillMeta } from '../../../../shared/types'
+import {
+  buildExportReportContent,
+  reportIntentForAiMessage,
+} from '../../utils/reportExportBuild'
+import { FluxToast, type FluxToastState } from '../common/FluxToast'
+import {
+  AUTO_COMPRESS_BLOCK_PCT,
+  AUTO_COMPRESS_HARD_PCT,
+  AUTO_COMPRESS_SOFT_PCT,
+  LARGE_FILE_NO_INJECT_BYTES,
+  MAX_REQUEST_INPUT_CHARS,
+  MAX_OPEN_FILE_INJECT_CHARS,
+  MAX_PREFACE_SINGLE_CHARS,
+  MAX_QUOTE_CHARS,
+  clampPreface,
+  estimateInputChars,
+  formatLargeFileMetadata,
+} from '../../../../shared/context-budget'
+import { shouldAutoCompress } from '../../../../shared/history-compress'
+import type { FileInfo } from '../../../../shared/types'
 
 const WORKING_HINTS = [
   '思考中...',
@@ -63,27 +86,34 @@ function stripSlashSkillTokens(text: string, names: string[]): string {
   return s.replace(/\n{3,}/g, '\n\n').trim()
 }
 
-function hasReportIntent(text: string): boolean {
-  const t = text.toLowerCase()
-  if (!t.trim()) return false
-  if (t.includes('/analysis-report')) return true
-  return (
-    /(导出|输出|生成|撰写|整理).{0,12}(分析报告|正式报告|markdown\s*报告|结构化报告|报告)/i.test(t) ||
-    /(分析结果|结论).{0,10}(做成|整理成|写成).{0,10}(报告|文档)/i.test(t)
-  )
-}
-
-function hasProblemSummaryIntent(text: string): boolean {
-  const t = text.toLowerCase()
-  if (!t.trim()) return false
-  if (t.includes('/problem-summary')) return true
-  return /(问题总结|排查总结|故障复盘|问题沉淀|知识库条目|经验总结|总结报告)/i.test(t)
-}
-
 /** 用于 write_file 允许的目录前缀（与主进程 path.dirname 一致语义） */
 function parentDir(filePath: string): string {
   const m = filePath.match(/^(.*)[/\\][^/\\]+$/)
   return m ? m[1]! : filePath
+}
+
+async function fetchFileInfo(filePath: string): Promise<FileInfo | null> {
+  try {
+    const res = (await window.electronAPI.file.getInfo(filePath)) as {
+      success?: boolean
+      data?: FileInfo
+    }
+    return res?.success && res.data ? res.data : null
+  } catch {
+    return null
+  }
+}
+
+function showContextWarnings(
+  warnings: string[],
+  setToast: (t: FluxToastState | null) => void,
+): void {
+  if (warnings.length === 0) return
+  const message =
+    warnings.length === 1
+      ? warnings[0]!
+      : `${warnings[0]}（另有 ${warnings.length - 1} 条上下文提示）`
+  setToast({ message, variant: 'warn' })
 }
 
 interface ChatPanelProps {
@@ -228,12 +258,25 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
   const addToolCallToAiMessage = useChatStore((s) => s.addToolCallToAiMessage)
   const updateToolCallResult = useChatStore((s) => s.updateToolCallResult)
   const finalizePendingToolCalls = useChatStore((s) => s.finalizePendingToolCalls)
+  const summarizeToolOutputs = useChatStore((s) => s.summarizeToolOutputs)
   const setAgentStatus = useChatStore((s) => s.setAgentStatus)
+  const quotesForBar = useChatStore((s) => s.quotes)
+  const workingSummary = useSessionContextStore((s) => s.workingSummary)
+  const compressFromMessages = useSessionContextStore((s) => s.compressFromMessages)
+  const getHistoryForApi = useSessionContextStore((s) => s.getHistoryForApi)
+  const autoCompressHistory = useSessionContextStore((s) => s.autoCompressHistory)
+  const pinFromMessageContent = useSessionContextStore((s) => s.pinFromMessageContent)
+  const isFactPinned = useSessionContextStore((s) => s.isFactPinned)
+  const persistWorkspaceSession = useSessionContextStore((s) => s.persistWorkspaceSession)
+  const pinnedFacts = useSessionContextStore((s) => s.pinnedFacts)
   const [progressHint, setProgressHint] = useState('')
   const [workingHintIndex, setWorkingHintIndex] = useState(0)
   const [processedWriteCallIds, setProcessedWriteCallIds] = useState<Set<string>>(new Set())
   const [previewMetaByChangeId, setPreviewMetaByChangeId] = useState<Map<string, PreviewChangeData>>(new Map())
   const [reportSourceMessageId, setReportSourceMessageId] = useState<string | null>(null)
+  const [contextToast, setContextToast] = useState<FluxToastState | null>(null)
+  const [isAutoCompressing, setIsAutoCompressing] = useState(false)
+  const [draftStats, setDraftStats] = useState({ textChars: 0, attachmentChars: 0, skillCount: 0 })
 
   // Editor-chat bridge for write_file preview actions
   const { previewChange, applyChange, rejectChange } = useEditorChatBridge()
@@ -341,6 +384,12 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
     for (const msg of messages) {
       result.push({ type: 'message', message: msg })
       if (msg.role === 'ai' && msg.toolCalls && msg.toolCalls.length > 0) {
+        const { reportRequested, problemSummaryRequested } = reportIntentForAiMessage(
+          messages,
+          msg.id,
+        )
+        const suppressReportWrites = reportRequested || problemSummaryRequested
+
         for (const tc of msg.toolCalls) {
           // 文件读取/文件信息属于内部检索步骤，默认不展示工具卡片。
           if (tc.name === 'read_file' || tc.name === 'get_file_info') {
@@ -348,6 +397,10 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
           }
           // 联网抓取属于内部检索步骤，默认不展示工具卡片。
           if (tc.name === 'fetch_webpage') {
+            continue
+          }
+          // 报告场景：不展示 write_file（交付由「导出报告」完成，方案 A）
+          if (tc.name === 'write_file' && suppressReportWrites) {
             continue
           }
           // 写文件确认卡片：等 AI 本轮回复结束后再展示，避免中途突兀插入
@@ -378,67 +431,35 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       (m) => m.id === reportSourceMessageId && m.role === 'ai',
     ) as Message | undefined
 
-    if (!currentAiMessage || !currentAiMessage.content.trim()) {
+    if (!currentAiMessage) {
       return { show: false, content: '', defaultName: 'analysis-report.md', buttonLabel: '导出报告' }
     }
 
-    // Only show export when the corresponding user turn explicitly requested report-style output.
-    const aiIndex = messages.findIndex((m) => m.id === reportSourceMessageId)
-    const prevUser =
-      aiIndex > 0
-        ? [...messages.slice(0, aiIndex)].reverse().find((m) => m.role === 'user')
-        : undefined
-
-    const reportRequested =
-      hasReportIntent(prevUser?.content ?? '') || hasReportIntent(prevUser?.contextFootnote ?? '')
-    const problemSummaryRequested =
-      hasProblemSummaryIntent(prevUser?.content ?? '') ||
-      hasProblemSummaryIntent(prevUser?.contextFootnote ?? '')
+    const { reportRequested, problemSummaryRequested } = reportIntentForAiMessage(
+      messages,
+      reportSourceMessageId,
+    )
 
     if (!reportRequested && !problemSummaryRequested) {
       return { show: false, content: '', defaultName: 'analysis-report.md', buttonLabel: '导出报告' }
     }
 
-    // Build report content from the AI message
-    const lines: string[] = []
-    lines.push(problemSummaryRequested ? '# 问题总结' : '# 日志分析报告')
-    lines.push('')
-    lines.push(`> 生成时间: ${new Date().toLocaleString('zh-CN')}`)
-    lines.push('')
-    lines.push(currentAiMessage.content)
-    lines.push('')
+    const exportContent = buildExportReportContent(currentAiMessage, {
+      problemSummaryRequested,
+      previewMetaByChangeId,
+    })
 
-    // Append tool call summary as appendix
-    if (currentAiMessage.toolCalls && currentAiMessage.toolCalls.length > 0) {
-      lines.push('---')
-      lines.push('')
-      lines.push(problemSummaryRequested ? '## 附录：本轮工具调用记录' : '## 附录：分析工具调用记录')
-      lines.push('')
-      for (const tc of currentAiMessage.toolCalls) {
-        if (tc.name === 'search_content') continue
-        lines.push(`### \`${tc.name}\``)
-        if (tc.output !== undefined) {
-          const outputText =
-            typeof tc.output === 'string' ? tc.output : JSON.stringify(tc.output, null, 2)
-          lines.push('')
-          lines.push('```')
-          lines.push(outputText.length > 2000 ? outputText.slice(0, 2000) + '\n...(truncated)' : outputText)
-          lines.push('```')
-        } else {
-          lines.push('')
-          lines.push('_(未返回结果)_')
-        }
-        lines.push('')
-      }
+    if (!exportContent) {
+      return { show: false, content: '', defaultName: 'analysis-report.md', buttonLabel: '导出报告' }
     }
 
     return {
       show: true,
-      content: lines.join('\n'),
+      content: exportContent,
       defaultName: problemSummaryRequested ? 'problem-summary.md' : 'analysis-report.md',
       buttonLabel: '导出报告',
     }
-  }, [agentStatus, messages, reportSourceMessageId])
+  }, [agentStatus, messages, reportSourceMessageId, previewMetaByChangeId])
 
   /* ── Is the last AI message still streaming? ── */
 
@@ -534,9 +555,33 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
           const completedMsgId = currentAiMessageIdRef.current
           if (completedMsgId) {
             setReportSourceMessageId(completedMsgId)
+            // 报告场景：自动忽略误触发的 write_file，避免展示大段 diff 卡片
+            const snapshot = useChatStore.getState().messages
+            const { reportRequested, problemSummaryRequested } = reportIntentForAiMessage(
+              snapshot,
+              completedMsgId,
+            )
+            if (reportRequested || problemSummaryRequested) {
+              const aiMsg = snapshot.find((m) => m.id === completedMsgId && m.role === 'ai')
+              const writeIds =
+                aiMsg?.toolCalls?.filter((tc) => tc.name === 'write_file').map((tc) => tc.id) ?? []
+              if (writeIds.length > 0) {
+                setProcessedWriteCallIds((prev) => {
+                  const next = new Set(prev)
+                  for (const id of writeIds) next.add(id)
+                  return next
+                })
+                setPreviewMetaByChangeId((prev) => {
+                  const next = new Map(prev)
+                  for (const id of writeIds) next.delete(id)
+                  return next
+                })
+              }
+            }
           }
           setAgentStatus('idle')
           setProgressHint('')
+          summarizeToolOutputs()
           currentAiMessageIdRef.current = null
           // Unsubscribe stream
           if (streamUnsubRef.current) {
@@ -557,6 +602,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
             finalizePendingToolCalls(msgId, event.message)
           }
           currentAiMessageIdRef.current = null
+          summarizeToolOutputs()
           // Unsubscribe stream
           if (streamUnsubRef.current) {
             streamUnsubRef.current()
@@ -582,6 +628,9 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
           const sec = event.elapsedMs !== undefined ? ` (${Math.floor(event.elapsedMs / 1000)}s)` : ''
           const text = `${event.message}${sec}`
           setProgressHint(text)
+          if (event.stage === 'context_budget') {
+            setContextToast({ message: event.message, variant: 'warn' })
+          }
           break
         }
       }
@@ -596,13 +645,11 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       flushBufferedTokens,
       scheduleBufferedFlush,
       setAgentStatus,
+      summarizeToolOutputs,
     ],
   )
 
   /* ── Build IPC context：默认仅当前预览/激活文件（无 @ 或未打开标签时不混入其它已打开标签正文） ── */
-
-  const MAX_TAB_READ_CHARS = 500_000
-  const MAX_ACTIVE_FILE_CONTEXT_CHARS = 120_000
 
   const buildAgentContextAsync = useCallback(async () => {
     const currentFile = useFileStore.getState().currentFile
@@ -613,18 +660,21 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       path: string
       content?: string
       selectedText?: string
+      sizeBytes?: number
+      lines?: number
+      encoding?: string
     }> = []
 
     if (currentFile) {
+      const info = await fetchFileInfo(currentFile)
+      const sizeBytes = info?.size ?? 0
       const isOpenTab = files.some((f) => f.path === currentFile)
-      if (isOpenTab) {
-        openFiles = [
-          {
-            path: currentFile,
-            content: content.slice(0, MAX_ACTIVE_FILE_CONTEXT_CHARS),
-            selectedText: selectedText ?? undefined,
-          },
-        ]
+
+      let injectContent: string | undefined
+      if (sizeBytes > LARGE_FILE_NO_INJECT_BYTES) {
+        injectContent = undefined
+      } else if (isOpenTab) {
+        injectContent = content.slice(0, MAX_OPEN_FILE_INJECT_CHARS)
       } else {
         try {
           const res = (await window.electronAPI.file.read(currentFile)) as {
@@ -633,26 +683,28 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
           }
           const raw =
             res?.success && res.data?.content !== undefined ? res.data.content : undefined
-          openFiles = [
-            {
-              path: currentFile,
-              content: raw !== undefined ? raw.slice(0, MAX_TAB_READ_CHARS) : undefined,
-              selectedText: undefined,
-            },
-          ]
+          injectContent = raw?.slice(0, MAX_OPEN_FILE_INJECT_CHARS)
         } catch {
-          openFiles = [
-            {
-              path: currentFile,
-              content: undefined,
-              selectedText: undefined,
-            },
-          ]
+          injectContent = undefined
         }
       }
+
+      openFiles = [
+        {
+          path: currentFile,
+          content: injectContent,
+          selectedText: selectedText ?? undefined,
+          sizeBytes: info?.size,
+          lines: info?.lines,
+          encoding: info?.encoding,
+        },
+      ]
     }
 
-    const history = useChatStore.getState().messages.map((m) => {
+    const history = useSessionContextStore
+      .getState()
+      .getHistoryForApi(useChatStore.getState().messages)
+      .map((m) => {
       if (m.role === 'user') {
         return { role: 'user' as const, content: m.content }
       }
@@ -673,6 +725,32 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       text: string,
       opts?: { attachmentPaths?: string[]; skillInvocations?: string[] },
     ) => {
+      if (isAutoCompressing) {
+        setContextToast({ message: '正在压缩上下文，请稍候再发送', variant: 'warn' })
+        return
+      }
+
+      const runAutoCompression = async (reason: string): Promise<void> => {
+        setIsAutoCompressing(true)
+        setContextToast({ message: '正在压缩上下文…', variant: 'warn' })
+        const msgs = useChatStore.getState().messages
+        const summary = compressFromMessages(msgs)
+        const root = useFileStore.getState().workspaceRoot
+        let ok = true
+        if (root) {
+          ok = await persistWorkspaceSession(root)
+        }
+        setContextToast({
+          message: ok
+            ? summary
+              ? `已自动压缩（${reason}，摘要 ${summary.length.toLocaleString()} 字符）`
+              : `已自动压缩（${reason}）`
+            : `已自动压缩（${reason}，保存失败）`,
+          variant: ok ? 'success' : 'warn',
+        })
+        setIsAutoCompressing(false)
+      }
+
       // 新一轮输入开始时，历史写入卡片（未处理）全部作废，避免旧弹窗再次出现。
       {
         const staleWriteIds = useChatStore
@@ -729,7 +807,25 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         llmBody = '（已按 /Skill 调用注入技能说明，请遵照 Skill 内容协助处理。）'
       }
 
-      const base = await buildAgentContextAsync()
+      const prefaceWarnings: string[] = []
+      const snapshotMessages = useChatStore.getState().messages
+      if (
+        autoCompressHistory &&
+        shouldAutoCompress(
+          snapshotMessages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            reasoningContent: m.reasoningContent,
+          })),
+          true,
+        )
+      ) {
+        await runAutoCompression('历史过长')
+        prefaceWarnings.push('已自动压缩较早对话以控制上下文')
+      }
+
+      let base = await buildAgentContextAsync()
       let preface = ''
       const quotes = useChatStore.getState().quotes
       const currentPath = useFileStore.getState().currentFile
@@ -768,12 +864,33 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         const quoteBlocks = quotes.map((q, i) => {
           const label = q.sourceLabel ?? quoteBasename ?? '编辑器'
           const range = q.range ? `#${q.range.startLine}-${q.range.endLine}` : ''
-          return `【引用选区 ${i + 1}：@${label}${range}】\n\`\`\`\n${q.text}\n\`\`\``
+          const text =
+            q.text.length > MAX_QUOTE_CHARS
+              ? `${q.text.slice(0, MAX_QUOTE_CHARS)}\n… [quote truncated]`
+              : q.text
+          if (q.text.length > MAX_QUOTE_CHARS) {
+            prefaceWarnings.push(`引用选区 ${i + 1} 已截断至 ${MAX_QUOTE_CHARS.toLocaleString()} 字符`)
+          }
+          return `【引用选区 ${i + 1}：@${label}${range}】\n\`\`\`\n${text}\n\`\`\``
         })
         preface += quoteBlocks.join('\n\n')
         useChatStore.getState().clearQuotes()
       }
       for (const p of attachmentPaths) {
+        const info = await fetchFileInfo(p)
+        const sizeBytes = info?.size ?? 0
+        if (sizeBytes > LARGE_FILE_NO_INJECT_BYTES) {
+          const meta = formatLargeFileMetadata({
+            path: p,
+            sizeBytes,
+            lines: info?.lines,
+            encoding: info?.encoding,
+          })
+          const block = `【@${p}】\n${meta}`
+          preface += preface ? `\n\n${block}` : block
+          prefaceWarnings.push(`附件未注入全文：${p.split(/[/\\]/).pop() ?? p}`)
+          continue
+        }
         try {
           const res = (await window.electronAPI.file.read(p)) as {
             success?: boolean
@@ -781,7 +898,14 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
           }
           const c =
             res?.success && res.data?.content !== undefined ? res.data.content : ''
-          const block = `【@${p}】\n\`\`\`\n${c.slice(0, 120000)}\n\`\`\``
+          const clipped =
+            c.length > MAX_PREFACE_SINGLE_CHARS
+              ? `${c.slice(0, MAX_PREFACE_SINGLE_CHARS)}\n… [attachment truncated]`
+              : c
+          if (c.length > MAX_PREFACE_SINGLE_CHARS) {
+            prefaceWarnings.push(`附件已截断：${p.split(/[/\\]/).pop() ?? p}`)
+          }
+          const block = `【@${p}】\n\`\`\`\n${clipped}\n\`\`\``
           preface += preface ? `\n\n${block}` : block
         } catch {
           const err = `【@${p}】(读取失败)`
@@ -789,9 +913,57 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         }
       }
 
+      const { text: clampedPreface, warnings: prefaceClampWarnings } = clampPreface(
+        preface.trim() || undefined,
+      )
+      prefaceWarnings.push(...prefaceClampWarnings)
+
+      const preflightSystemChars =
+        2000 +
+        slashSkillMetas.reduce((sum, s) => sum + (s.body?.length ?? 0), 0) +
+        pinnedFacts.reduce((sum, f) => sum + f.length, 0) +
+        (workingSummary?.length ?? 0) +
+        (previewPath ? 300 : 0)
+
+      const estimateBeforeSend = estimateInputChars({
+        system: 'x'.repeat(Math.max(1, preflightSystemChars)),
+        preface: clampedPreface || undefined,
+        history: base.history,
+        userMessage: llmBody,
+      })
+      const usagePct = Math.round((estimateBeforeSend.total / MAX_REQUEST_INPUT_CHARS) * 100)
+
+      if (usagePct >= AUTO_COMPRESS_HARD_PCT) {
+        await runAutoCompression(`占用 ${usagePct}%`)
+        base = await buildAgentContextAsync()
+      } else if (usagePct >= AUTO_COMPRESS_SOFT_PCT) {
+        prefaceWarnings.push(`上下文占用 ${usagePct}%，接近上限`)
+      }
+
+      const estimateAfterCompression = estimateInputChars({
+        system: 'x'.repeat(Math.max(1, preflightSystemChars)),
+        preface: clampedPreface || undefined,
+        history: base.history,
+        userMessage: llmBody,
+      })
+      const finalPct = Math.round((estimateAfterCompression.total / MAX_REQUEST_INPUT_CHARS) * 100)
+      if (finalPct >= AUTO_COMPRESS_BLOCK_PCT) {
+        setContextToast({
+          message: `上下文占用 ${finalPct}% 仍过高，已阻止发送，请继续压缩或缩短输入`,
+          variant: 'warn',
+        })
+        showContextWarnings(prefaceWarnings, setContextToast)
+        return
+      }
+
+      showContextWarnings(prefaceWarnings, setContextToast)
+
+      const session = useSessionContextStore.getState()
       const context = {
         ...base,
-        preface: preface.trim() || undefined,
+        preface: clampedPreface || undefined,
+        contextSummary: session.workingSummary ?? undefined,
+        pinnedFacts: session.pinnedFacts.length > 0 ? session.pinnedFacts : undefined,
         explicitSkillNames:
           explicitSkillNames.length > 0 ? explicitSkillNames : undefined,
         workspaceRoot,
@@ -843,8 +1015,52 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       flushBufferedTokens,
       setAgentStatus,
       finalizePendingToolCalls,
+      autoCompressHistory,
+      compressFromMessages,
+      isAutoCompressing,
+      persistWorkspaceSession,
+      pinnedFacts,
+      previewPath,
+      slashSkillMetas,
+      workingSummary,
     ],
   )
+
+  const handlePinMessage = useCallback(
+    (content: string) => {
+      const ok = pinFromMessageContent(content)
+      if (!ok) {
+        setContextToast({ message: '无法钉住（可能已存在或已达上限）', variant: 'warn' })
+        return
+      }
+      const root = useFileStore.getState().workspaceRoot
+      if (root) {
+        void persistWorkspaceSession(root)
+      }
+      setContextToast({ message: '已钉住结论，后续对话将注入 system', variant: 'success' })
+    },
+    [pinFromMessageContent, persistWorkspaceSession],
+  )
+
+  const contextBarHistory = useMemo(
+    () =>
+      getHistoryForApi(messages).map((m) => ({
+        role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: m.content,
+        reasoningContent: m.reasoningContent,
+      })),
+    [messages, getHistoryForApi, workingSummary],
+  )
+
+  /** 基于当前 UI 状态估算 system prompt 字符数，供 ChatContextBar 展示 */
+  const estimatedSystemChars = useMemo(() => {
+    const base = 2000 // 固定规则 + datetime + writable roots 等
+    const skills = slashSkillMetas.reduce((sum, s) => sum + (s.body?.length ?? 0), 0)
+    const pinned = pinnedFacts.reduce((sum, f) => sum + f.length, 0)
+    const summary = workingSummary?.length ?? 0
+    const openFilesSection = previewPath ? 300 : 0
+    return base + skills + pinned + summary + openFilesSection
+  }, [slashSkillMetas, workingSummary, pinnedFacts, previewPath])
 
   /* ── Cancel ── */
 
@@ -1020,8 +1236,6 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
   /*  Configured — full chat UI                                         */
   /* ══════════════════════════════════════════════════════════════════ */
 
-  const showSuggestions = messages.length === 0 && !isRunning
-
   return (
     <aside className="chat-panel">
       {/* Header — matches Pencil: "AI 对话" + status dot + text */}
@@ -1080,6 +1294,13 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
                       if (tc.name === 'search_content' && tc.output !== undefined) return false
                       if (tc.name === 'write_file' && agentStatus !== 'idle') return false
                       if (tc.name === 'write_file' && processedWriteCallIds.has(tc.id)) return false
+                      const { reportRequested, problemSummaryRequested } = reportIntentForAiMessage(
+                        messages,
+                        item.message.id,
+                      )
+                      if (tc.name === 'write_file' && (reportRequested || problemSummaryRequested)) {
+                        return false
+                      }
                       return true
                     }),
                   )
@@ -1103,6 +1324,16 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
                     <MessageLine
                       message={item.message}
                       isStreaming={isLastAi && isStreaming}
+                      isPinned={
+                        item.message.role === 'ai'
+                          ? isFactPinned(item.message.content)
+                          : undefined
+                      }
+                      onPin={
+                        item.message.role === 'ai' && item.message.content.trim()
+                          ? () => handlePinMessage(item.message.content)
+                          : undefined
+                      }
                     />
                   </div>
                 )
@@ -1149,20 +1380,30 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         />
       )}
 
-      {/* Suggestion chips shown above input when there are messages */}
-      {showSuggestions && messages.length === 0 && !isRunning && (
-        <SuggestionChips onSelect={handleSuggestionSelect} />
-      )}
-
       {/* Input area */}
+      <PinnedFactsBar onPersistHint={(m) => setContextToast({ message: m, variant: 'success' })} />
+      <ChatContextBar
+        history={contextBarHistory}
+        prefaceChars={
+          quotesForBar.reduce((sum, q) => sum + q.text.length, 0) + draftStats.attachmentChars
+        }
+        userMessageChars={draftStats.textChars}
+        systemChars={estimatedSystemChars}
+        hasSummary={Boolean(workingSummary?.trim())}
+        isRunning={isRunning}
+        isAutoCompressing={isAutoCompressing}
+      />
       <ChatInput
         onSend={handleSend}
         onCancel={handleCancel}
         isRunning={isRunning}
+        disabled={isAutoCompressing}
+        onDraftStatsChange={setDraftStats}
         mentionFiles={mentionFiles}
         quoteSourceLabel={previewPath ? previewPath.split(/[/\\]/).pop() : undefined}
         slashSkills={slashSkillMetas}
       />
+      <FluxToast toast={contextToast} onDismiss={() => setContextToast(null)} />
     </aside>
   )
 }

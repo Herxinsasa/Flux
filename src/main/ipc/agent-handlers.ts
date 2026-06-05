@@ -6,7 +6,8 @@ import { buildSkillSystemPrompt } from '../skill/matcher'
 import { SkillManager } from '../skill/skill-manager'
 import type { ChatMessage } from '../agent/provider-router'
 import { collectWritableRoots } from '../agent/writable-roots'
-import { truncateChatHistory } from '../agent/truncate-history'
+import { assembleAgentContext } from '../agent/context-assembler'
+import { MAX_TOOL_IPC_CHARS } from '../../shared/context-budget'
 import log from '../logger'
 
 const IPC_PROGRESS_TICK_MS = 5000
@@ -31,6 +32,10 @@ interface SendContext {
   workspaceRoot?: string | null
   /** 额外允许写入的目录绝对路径（已打开标签、@ 附件所在目录等） */
   writableRootsExtra?: string[]
+  /** P1: 冷层对话规则摘要 */
+  contextSummary?: string
+  /** P3 prep: pinned 结论 */
+  pinnedFacts?: string[]
 }
 
 function buildSystemPrompt(context?: SendContext): string {
@@ -51,29 +56,13 @@ function buildSystemPrompt(context?: SendContext): string {
   parts.push('- Use write_file only when the user explicitly asks you to create or modify a file.')
   parts.push('- For write_file, prefer patch edits via edits[] (startLine/endLine/newText) over full content replacement.')
   parts.push('- If multiple files are modified in one turn, include a shared transactionId to group them.')
-
-  /** 单文件注入上限，避免超大文件撑爆上下文 */
-  const MAX_OPEN_FILE_CHARS = 120_000
-
-  if (context?.openFiles && context.openFiles.length > 0) {
-    parts.push('')
-    parts.push('Currently focused preview file (editor — content included when available):')
-    for (const f of context.openFiles) {
-      parts.push(`- ${f.path}`)
-      if (f.selectedText) {
-        parts.push(`  Selected text in active tab: """${f.selectedText}"""`)
-      }
-      if (f.content !== undefined && f.content !== '') {
-        const body =
-          f.content.length > MAX_OPEN_FILE_CHARS
-            ? `${f.content.slice(0, MAX_OPEN_FILE_CHARS)}\n\n… (truncated, ${f.content.length} chars total)`
-            : f.content
-        parts.push(`  Full content:\n\`\`\`\n${body}\n\`\`\``)
-      } else {
-        parts.push(`  (Content not loaded in this request — use read_file if needed.)`)
-      }
-    }
-  }
+  parts.push('')
+  parts.push('Report delivery (Flux Plan A — user exports via the in-app button):')
+  parts.push('- When the user asks for an analysis report, formal report, or Markdown deliverable: write the FULL structured report in your chat reply (executive summary first, then findings, tables, and recommendations).')
+  parts.push('- Do NOT use write_file to create or save .md report files unless the user explicitly names a file path AND asks you to write/save to disk.')
+  parts.push('- Never claim a report was exported or saved to disk; Flux requires the user to click「导出报告」. write_file only produces a preview until the user confirms.')
+  parts.push('- After delivering the report in chat, briefly remind the user they can click「导出报告」below to save a Markdown file.')
+  parts.push('- For large log files: use search_content to locate patterns, then read_file(offset, limit) for targeted sections — do not assume the full file is in context.')
 
   try {
     /** list() 内部会 ensureInit；SkillManager.init() 在 registerAllHandlers 已调用且幂等 */
@@ -111,40 +100,15 @@ export function registerAgentHandlers(): void {
     try {
       log.info('Agent send:', { message: message.slice(0, 100), hasContext: !!context })
 
-      // Build conversation messages
-      const chatMessages: ChatMessage[] = []
-
       const writableRoots = collectWritableRoots({
         workspaceRoot: context?.workspaceRoot,
         writableRootsExtra: context?.writableRootsExtra,
         openFiles: context?.openFiles,
       })
 
-      // Include conversation history if provided（截断以防撑爆上下文）
-      if (context?.history && context.history.length > 0) {
-        const trimmed = truncateChatHistory(context.history as ChatMessage[])
-        for (const h of trimmed) {
-          chatMessages.push({
-            role: h.role,
-            content: h.content,
-            reasoningContent: h.reasoningContent,
-            toolCallId: h.toolCallId,
-            toolName: h.toolName,
-            input: h.input,
-          })
-        }
-      }
-
-      const userBody = [context?.preface?.trim(), message].filter(Boolean).join('\n\n')
-      chatMessages.push({
-        role: 'user',
-        content: userBody,
-      })
-
-      // Build system prompt from context, augmented with matched + slash-invoked skills
       const baseSystem = buildSystemPrompt(context)
       const {
-        systemPrompt,
+        systemPrompt: systemWithSkills,
         invalidMatchedSkills,
         activeSkills,
         unresolvedExplicitSkills,
@@ -152,6 +116,33 @@ export function registerAgentHandlers(): void {
         explicitSkillNames: context?.explicitSkillNames,
         workspaceRoot: context?.workspaceRoot,
       })
+
+      const skillSystemSuffix =
+        systemWithSkills.length > baseSystem.length
+          ? systemWithSkills.slice(baseSystem.length)
+          : undefined
+
+      const assembled = assembleAgentContext({
+        baseSystemPrompt: baseSystem,
+        skillSystemSuffix,
+        contextSummary: context?.contextSummary,
+        pinnedFacts: context?.pinnedFacts,
+        preface: context?.preface,
+        userMessage: message,
+        history: (context?.history ?? []) as ChatMessage[],
+        openFiles: context?.openFiles,
+      })
+
+      const { chatMessages, system: systemPrompt, warnings: contextWarnings } = assembled
+
+      for (const w of contextWarnings) {
+        pushStreamEvent({
+          type: 'progress',
+          stage: 'context_budget',
+          message: w,
+          elapsedMs: Date.now() - requestStartedAt,
+        })
+      }
 
       if (activeSkills.length > 0) {
         pushStreamEvent({
@@ -270,10 +261,9 @@ export function registerAgentHandlers(): void {
             case 'tool_result':
               log.info('Tool result:', { id: evt.id, isError: evt.isError })
               {
-                const TOOL_RESULT_MAX = 4000
                 const safeContent =
-                  evt.content.length > TOOL_RESULT_MAX
-                    ? `${evt.content.slice(0, TOOL_RESULT_MAX)}\n...(truncated)`
+                  evt.content.length > MAX_TOOL_IPC_CHARS
+                    ? `${evt.content.slice(0, MAX_TOOL_IPC_CHARS)}\n...(truncated)`
                     : evt.content
               senderWindow?.webContents.send(
                 AGENT_STREAM,

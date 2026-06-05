@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { MAX_UI_MESSAGES, MAX_UI_TOOL_OUTPUT_CHARS } from '../../../shared/context-budget'
 
 export interface ToolCallEntry {
   id: string
@@ -62,6 +63,21 @@ interface ChatState {
   pushInputHistory: (text: string) => void
   cancelAgent: () => void
   clearMessages: () => void
+  /** 新建对话：清 messages，保留工作区/打开文件；不清 pinned（P3） */
+  newConversation: () => void
+  summarizeToolOutputs: () => void
+}
+
+function pruneUiMessages(messages: Message[]): Message[] {
+  if (messages.length <= MAX_UI_MESSAGES) return messages
+  return messages.slice(-MAX_UI_MESSAGES)
+}
+
+function summarizeOutput(output: unknown): unknown {
+  if (output === undefined || output === null) return output
+  const text = typeof output === 'string' ? output : JSON.stringify(output)
+  if (text.length <= MAX_UI_TOOL_OUTPUT_CHARS) return output
+  return `${text.slice(0, MAX_UI_TOOL_OUTPUT_CHARS)}… [${text.length} chars]`
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -75,7 +91,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendMessage: (content, opts) =>
     set((state) => ({
       agentStatus: 'running',
-      messages: [
+      messages: pruneUiMessages([
         ...state.messages,
         {
           id: crypto.randomUUID(),
@@ -84,17 +100,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
           contextFootnote: opts?.contextFootnote,
           timestamp: Date.now(),
         },
-      ],
+      ]),
     })),
 
   startAiMessage: () => {
     const id = crypto.randomUUID()
     set((state) => ({
       agentStatus: 'streaming',
-      messages: [
+      messages: pruneUiMessages([
         ...state.messages,
         { id, role: 'ai', content: '', timestamp: Date.now() },
-      ],
+      ]),
     }))
     return id
   },
@@ -237,4 +253,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
   cancelAgent: () => set({ agentStatus: 'idle' }),
 
   clearMessages: () => set({ messages: [], inputHistory: [] }),
+
+  newConversation: () =>
+    set({
+      messages: [],
+      inputHistory: [],
+      quotes: [],
+      quoteText: null,
+      quoteRange: null,
+      agentStatus: 'idle',
+    }),
+
+  summarizeToolOutputs: () =>
+    set((state) => ({
+      messages: state.messages.map((m) => {
+        if (m.role !== 'ai' || !m.toolCalls?.length) return m
+        return {
+          ...m,
+          toolCalls: m.toolCalls.map((tc) =>
+            tc.output === undefined
+              ? tc
+              : { ...tc, output: summarizeOutput(tc.output) },
+          ),
+        }
+      }),
+    })),
 }))

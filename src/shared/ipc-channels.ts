@@ -33,4 +33,10 @@ export const IPC_CHANNELS = {
   EDITOR_CHANGE_APPLIED: 'editor:change-applied',
   CHAT_QUOTE_TEXT: 'chat:quote-text',
   EXPORT_REPORT: 'export:report',
+  LOG_GET_INDEX: 'log:get-index',
+  LOG_READ_LINES: 'log:read-lines',
+  LOG_EVICT_INDEX: 'log:evict-index',
+  WORKSPACE_SESSION_READ: 'workspace:session-read',
+  WORKSPACE_SESSION_WRITE: 'workspace:session-write',
+  SHELL_OPEN_EXTERNAL: 'shell:open-external',
 } as const;

@@ -103,3 +103,37 @@ export interface ProvidersCatalog {
   version: 1
   providers: CatalogProvider[]
 }
+
+/** Log index built by main process (P2) */
+export interface LogIndexPayload {
+  path: string
+  sizeBytes: number
+  totalLines: number
+  encoding: string
+  levelCounts: {
+    fatal: number
+    error: number
+    warn: number
+    info: number
+    debug: number
+  }
+  /** Representative error/warn line numbers (1-based), capped */
+  errorSampleLines: number[]
+  warnSampleLines: number[]
+  /** ≤2KB text for AI context injection */
+  summaryText: string
+}
+
+export interface LogReadLinesPayload {
+  path: string
+  startLine: number
+  endLine: number
+  totalLines: number
+  lines: string[]
+}
+
+/** P3: .flux/session-summary.md payload */
+export interface WorkspaceSessionPayload {
+  pinnedFacts: string[]
+  workingSummary: string | null
+}

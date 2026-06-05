@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import { useEditorStore, inferMode } from './editorStore'
 import { useChatStore } from './chatStore'
+import { useSessionContextStore } from './sessionContextStore'
 import type { WorkspaceConfigFilePayload, WorkspaceFileEntry } from '../../../shared/types'
+import { EDITOR_LARGE_FILE_BYTES, EDITOR_SAMPLE_LINES } from '../../../shared/context-budget'
 
 /** Track in-flight loads to prevent concurrent loadContent calls for the same file. */
 const _loadingPaths = new Set<string>()
@@ -21,6 +23,45 @@ export interface FileEntry {
 function confirmDiscardUnsavedChanges(): boolean {
   if (!useEditorStore.getState().isDirty) return true
   return window.confirm('当前文件有未保存修改，继续操作会丢失这些更改。是否继续？')
+}
+
+function formatLargeFileEditorBanner(sizeBytes: number, lines?: number): string {
+  const sizeMb = (sizeBytes / (1024 * 1024)).toFixed(1)
+  const lineLabel = lines != null ? lines.toLocaleString() : '?'
+  return `[Flux 大文件预览] ${sizeMb} MB，约 ${lineLabel} 行。编辑器仅展示前 ${EDITOR_SAMPLE_LINES.toLocaleString()} 行采样；请通过 AI 使用 search_content / read_file(offset, limit) 分段分析。\n\n`
+}
+
+function readFileLineSample(filePath: string, maxLines: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const lines: string[] = []
+    let carry = ''
+    const unsub = window.electronAPI.file.readStream(filePath, (chunk) => {
+      if (chunk && typeof chunk === 'object') {
+        unsub()
+        reject(new Error('readStream failed'))
+        return
+      }
+      if (chunk === null) {
+        unsub()
+        if (carry.length > 0 && lines.length < maxLines) lines.push(carry)
+        resolve(lines.join('\n'))
+        return
+      }
+      if (typeof chunk !== 'string') return
+
+      carry += chunk
+      let nl = carry.indexOf('\n')
+      while (nl !== -1 && lines.length < maxLines) {
+        lines.push(carry.slice(0, nl))
+        carry = carry.slice(nl + 1)
+        nl = carry.indexOf('\n')
+      }
+      if (lines.length >= maxLines) {
+        unsub()
+        resolve(lines.join('\n'))
+      }
+    })
+  })
 }
 
 interface FileState {
@@ -47,6 +88,8 @@ interface FileState {
   clearWorkspace: () => void
   /** 从工作区列表打开文件（必要时加入已打开列表） */
   openWorkspaceFile: (filePath: string) => Promise<void>
+  /** 打开 Markdown 链接：关闭来源文件并切换到目标文件 */
+  openLinkedMarkdown: (targetPath: string, replacePath: string) => Promise<void>
   loadFileContent: (filePath: string) => Promise<void>
 }
 
@@ -146,6 +189,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     chatStore.clearMessages()
     chatStore.clearQuotes()
     chatStore.setAgentStatus('idle')
+    useSessionContextStore.getState().resetConversationContext()
 
     // Clear open files and editor content so memory can be reclaimed.
     set({ files: [], currentFile: null, isLoading: false })
@@ -158,6 +202,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       cursorColumn: 0,
       isDirty: false,
     })
+    useEditorStore.getState().clearLogIndexedView()
     useEditorStore.getState().bumpEditorHydration()
   },
 
@@ -182,6 +227,7 @@ export const useFileStore = create<FileState>((set, get) => ({
         workspaceConfig: workspaceConfig ?? null,
         workspaceOpenNonce: state.workspaceOpenNonce + 1,
       }))
+      void useSessionContextStore.getState().loadWorkspaceSession(root)
     } catch (e) {
       console.error('openFolder error:', e)
     } finally {
@@ -220,6 +266,47 @@ export const useFileStore = create<FileState>((set, get) => ({
       })
     }
     setCurrentFile(filePath)
+  },
+
+  openLinkedMarkdown: async (targetPath: string, replacePath: string) => {
+    if (!confirmDiscardUnsavedChanges()) return
+
+    const infoResult: any = await window.electronAPI.file.getInfo(targetPath)
+    if (!infoResult?.success || !infoResult.data) {
+      window.alert('找不到链接的 Markdown 文件')
+      return
+    }
+
+    const info = infoResult.data as {
+      path: string
+      name: string
+      size: number
+      extension: string
+      lines: number
+      encoding: string
+    }
+
+    const { files } = get()
+    const withoutSource = files.filter((f) => f.path !== replacePath)
+    const entry: FileEntry = {
+      path: info.path,
+      name: info.name,
+      size: info.size,
+      extension: info.extension,
+      lines: info.lines,
+      encoding: info.encoding,
+      active: true,
+    }
+    const nextFiles = [
+      ...withoutSource.filter((f) => f.path !== info.path),
+      { ...entry, active: true },
+    ].map((f) => ({ ...f, active: f.path === info.path }))
+
+    set({
+      files: nextFiles,
+      currentFile: info.path,
+    })
+    await get().loadFileContent(info.path)
   },
 
   /* ── IPC-driven actions ── */
@@ -301,7 +388,18 @@ export const useFileStore = create<FileState>((set, get) => ({
         return
       }
 
-      await openFile(result.data as string)
+      const createdPath = result.data as string
+      await openFile(createdPath)
+
+      // 若新建文件位于当前工作区内，立即刷新工作区文件树。
+      const { workspaceRoot, refreshWorkspaceFiles } = get()
+      if (workspaceRoot) {
+        const normRoot = workspaceRoot.replace(/\\/g, '/').toLowerCase()
+        const normPath = createdPath.replace(/\\/g, '/').toLowerCase()
+        if (normPath === normRoot || normPath.startsWith(normRoot + '/')) {
+          await refreshWorkspaceFiles()
+        }
+      }
     } catch (err) {
       console.error('createFile error:', err)
     } finally {
@@ -330,6 +428,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     setLoading(true)
 
     /** 切换文件时立即清空，避免 MDXEditor 仍展示上一个文件；加载完成后写入新内容 */
+    useEditorStore.getState().clearLogIndexedView()
     useEditorStore.setState({ content: '', isDirty: false })
     useEditorStore.getState().bumpEditorHydration()
 
@@ -348,92 +447,63 @@ export const useFileStore = create<FileState>((set, get) => ({
     }
 
     try {
-      // Check file size to decide full read vs streaming
       let fileSize = 0
+      let fileLines: number | undefined
       try {
-        const infoResult: any = await window.electronAPI.file.getInfo(filePath)
+        const infoResult: { success?: boolean; data?: { size?: number; lines?: number } } =
+          await window.electronAPI.file.getInfo(filePath)
         fileSize = infoResult?.data?.size ?? 0
+        fileLines = infoResult?.data?.lines
       } catch {
         // If getInfo fails, fall through to full read below
       }
 
-      const LARGE_FILE = 10 * 1024 * 1024 // 10MB threshold
+      const isLogFile = filePath.toLowerCase().endsWith('.log')
 
-      if (fileSize > LARGE_FILE) {
-        // ── Streaming path for large files (>10MB) ──
-        const editorStore = useEditorStore.getState()
-        const chunks: string[] = []
-        let bufferedChars = 0
-        let flushTimer: ReturnType<typeof setTimeout> | null = null
-        const FLUSH_EVERY_CHARS = 512 * 1024
-
-        const flushToEditor = (force = false) => {
-          if (!force && bufferedChars < FLUSH_EVERY_CHARS) return
-          bufferedChars = 0
-          if (get().currentFile === filePath) {
-            editorStore.setContent(chunks.join(''))
-          }
+      if (isLogFile && fileSize > EDITOR_LARGE_FILE_BYTES) {
+        if (get().currentFile === filePath) {
+          useEditorStore.getState().setLogIndexedView(filePath, fileLines ?? 0)
+          useEditorStore.getState().setMode('log')
+          useEditorStore.getState().markClean()
+          useEditorStore.getState().bumpEditorHydration()
+          void window.electronAPI.log.getIndex(filePath).then((res) => {
+            const payload = res as { success?: boolean; data?: { totalLines?: number } }
+            if (
+              payload?.success &&
+              payload.data?.totalLines != null &&
+              get().currentFile === filePath
+            ) {
+              useEditorStore.getState().setLogIndexedView(filePath, payload.data.totalLines)
+            }
+          })
         }
+        cleanup()
+        return
+      }
 
-        const scheduleFlush = () => {
-          if (flushTimer) return
-          flushTimer = setTimeout(() => {
-            flushTimer = null
-            flushToEditor()
-          }, 120)
-        }
-
-        const unsub = window.electronAPI.file.readStream(filePath, (chunk: unknown) => {
-          // Main process may send an error object; stop this stream safely.
-          if (chunk && typeof chunk === 'object') {
-            console.error('readStream error payload:', chunk)
-            if (flushTimer) {
-              clearTimeout(flushTimer)
-              flushTimer = null
-            }
-            cleanup()
-            return
-          }
-
-          if (chunk === null) {
-            if (flushTimer) {
-              clearTimeout(flushTimer)
-              flushTimer = null
-            }
-            flushToEditor(true)
-            // End of stream — 若期间已切换到其它文件则丢弃
-            if (get().currentFile === filePath) {
-              editorStore.setMode(inferMode(filePath))
-              editorStore.markClean()
-              useEditorStore.getState().bumpEditorHydration()
-            }
-            cleanup()
-            return
-          }
-
-          if (typeof chunk !== 'string') {
-            return
-          }
-
-          chunks.push(chunk)
-          bufferedChars += chunk.length
-          flushToEditor()
-          scheduleFlush()
-        })
-        _streamUnsubs.set(filePath, unsub)
-        // Note: cleanup() is called in the end-of-stream callback above,
-        // not here, because streaming is asynchronous.
-      } else {
-        // ── Full read path for small files ──
-        const result: any = await window.electronAPI.file.read(filePath)
-        if (result?.success && result.data && get().currentFile === filePath) {
-          useEditorStore.getState().setContent(result.data.content)
+      if (fileSize > EDITOR_LARGE_FILE_BYTES) {
+        const sample = await readFileLineSample(filePath, EDITOR_SAMPLE_LINES)
+        if (get().currentFile === filePath) {
+          const banner = formatLargeFileEditorBanner(fileSize, fileLines)
+          useEditorStore.getState().setContent(banner + sample)
           useEditorStore.getState().setMode(inferMode(filePath))
           useEditorStore.getState().markClean()
           useEditorStore.getState().bumpEditorHydration()
         }
         cleanup()
+        return
       }
+
+      // ── Full read path for files ≤2MB ──
+      const result: { success?: boolean; data?: { content?: string } } =
+        await window.electronAPI.file.read(filePath)
+      if (result?.success && result.data && get().currentFile === filePath) {
+        useEditorStore.getState().setContent(result.data.content)
+        useEditorStore.getState().setMode(inferMode(filePath))
+        useEditorStore.getState().markClean()
+        useEditorStore.getState().bumpEditorHydration()
+      }
+      cleanup()
     } catch (err) {
       console.error('loadFileContent error:', err)
       cleanup()

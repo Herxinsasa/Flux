@@ -66,6 +66,28 @@ declare global {
       export: {
         report: (content: string, defaultName: string) => Promise<{ success: boolean; data?: string | null; error?: string }>
       }
+      log: {
+        getIndex: (filePath: string) => Promise<{ success: boolean; data?: import('../../../shared/types').LogIndexPayload; error?: string }>
+        readLines: (
+          filePath: string,
+          offset: number,
+          limit: number,
+        ) => Promise<{ success: boolean; data?: import('../../../shared/types').LogReadLinesPayload; error?: string }>
+        evictIndex: (filePath: string) => Promise<{ success: boolean; error?: string }>
+      }
+      workspace: {
+        readSession: (workspaceRoot: string) => Promise<{ success: boolean; data?: import('../../../shared/types').WorkspaceSessionPayload; error?: string }>
+        writeSession: (
+          workspaceRoot: string,
+          payload: import('../../../shared/types').WorkspaceSessionPayload,
+        ) => Promise<{ success: boolean; error?: string }>
+      }
+      media: {
+        toLocalUrl: (absolutePath: string) => string
+      }
+      shell: {
+        openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
+      }
     }
   }
 }

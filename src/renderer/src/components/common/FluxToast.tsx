@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
-export type FluxToastVariant = 'success' | 'error'
+export type FluxToastVariant = 'success' | 'error' | 'warn'
 
 export interface FluxToastState {
   message: string
@@ -28,12 +28,16 @@ export function FluxToast({ toast, onDismiss }: FluxToastProps) {
   const border =
     toast.variant === 'success'
       ? 'color-mix(in srgb, var(--success) 28%, var(--border-visible))'
-      : 'color-mix(in srgb, var(--error) 28%, var(--border-visible))'
+      : toast.variant === 'warn'
+        ? 'color-mix(in srgb, var(--warning, #d4a017) 28%, var(--border-visible))'
+        : 'color-mix(in srgb, var(--error) 28%, var(--border-visible))'
 
   const accent =
     toast.variant === 'success'
       ? 'color-mix(in srgb, var(--success) 55%, var(--text-tertiary))'
-      : 'color-mix(in srgb, var(--error) 50%, var(--text-tertiary))'
+      : toast.variant === 'warn'
+        ? 'color-mix(in srgb, var(--warning, #d4a017) 55%, var(--text-tertiary))'
+        : 'color-mix(in srgb, var(--error) 50%, var(--text-tertiary))'
 
   return createPortal(
     <div
@@ -59,7 +63,7 @@ export function FluxToast({ toast, onDismiss }: FluxToastProps) {
       }}
     >
       <span style={{ color: accent, marginRight: 8 }} aria-hidden>
-        {toast.variant === 'success' ? '✓' : '✕'}
+        {toast.variant === 'success' ? '✓' : toast.variant === 'warn' ? '!' : '✕'}
       </span>
       {toast.message}
     </div>,
