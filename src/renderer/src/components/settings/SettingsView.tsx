@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useSettingsStore, type Provider } from '../../stores/settingsStore'
+import { useSessionContextStore } from '../../stores/sessionContextStore'
 import { useProvider } from '../../hooks/useProvider'
 import { IPC_CHANNELS } from '../../../../shared/ipc-channels'
 import type { ProvidersCatalog } from '../../../../shared/types'
@@ -11,6 +12,7 @@ import {
   mergeCurrentModelOption,
 } from '../../config/providerModels'
 import { SettingsToast, type SettingsToastState } from './SettingsToast'
+import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 
 /* ═══════════════════════════════════════════════════════════════════ */
 /*  SettingsView — pixel-exact Pencil kcjFC replica                     */
@@ -21,6 +23,25 @@ interface SettingsViewProps {
 }
 
 const EPHEMERAL_TEST_ID = '__connection-test__'
+
+interface ManualSessionCleanupOptions {
+  retentionDays: number
+  maxBytes: number
+  protectedSessionIds: string[]
+}
+
+export function buildManualCleanupOptions(
+  retentionDays: number,
+  maxStorageMb: number,
+  activeSessionId: string | null,
+): ManualSessionCleanupOptions {
+  return {
+    retentionDays,
+    maxBytes: maxStorageMb * 1024 * 1024,
+    protectedSessionIds: activeSessionId ? [activeSessionId] : [],
+  }
+}
+
 function newProviderId(): string {
   return `provider-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
@@ -55,11 +76,11 @@ function getProtocolLabel(type: Provider['type']): string {
 }
 
 export function SettingsView({ onBack }: SettingsViewProps) {
-  const theme = useSettingsStore((s) => s.theme)
-  const toggleTheme = useSettingsStore((s) => s.toggleTheme)
   const providers = useSettingsStore((s) => s.providers)
   const setProviders = useSettingsStore((s) => s.setProviders)
   const setActiveProvider = useSettingsStore((s) => s.setActiveProvider)
+  const providerModelOptions = useSettingsStore((s) => s.providerModelOptions)
+  const setProviderModelOptions = useSettingsStore((s) => s.setProviderModelOptions)
 
   const { testConnection, save, load, testingId } = useProvider()
 
@@ -79,10 +100,14 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
   const [modelOpen, setModelOpen] = useState(false)
+  const [remoteModels, setRemoteModels] = useState<string[]>([])
+  const [refreshingModels, setRefreshingModels] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [customProviderType, setCustomProviderType] = useState<Provider['type']>('openai_compat')
   const [, setDirty] = useState(false)
   const [toast, setToast] = useState<SettingsToastState | null>(null)
   const prevSavedIdRef = useRef<string | null | undefined>(undefined)
+  const modelRequestRef = useRef(0)
 
   // Load catalog
   useEffect(() => {
@@ -140,6 +165,9 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       setProviders([])
       setActiveProvider(null)
       setPresetKey(k)
+      modelRequestRef.current += 1
+      setRefreshingModels(false)
+      setRemoteModels([])
       const p = PROVIDER_PRESETS[k]
       setCustomProviderType(p.type)
       setBaseUrl(p.baseUrl ?? '')
@@ -155,10 +183,13 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   const selectedProviderName =
     presetKey === 'custom' ? getProtocolLabel(selectedProviderType) : currentPreset.label
   const showBaseUrl = selectedProviderType !== 'anthropic'
+  const persistedModels = providerModelOptions[presetKey] ?? []
 
   const modelOptions = useMemo(() => {
+    if (remoteModels.length > 0) return mergeCurrentModelOption(model, remoteModels)
+    if (persistedModels.length > 0) return mergeCurrentModelOption(model, persistedModels)
     // 如果有 catalog，优先使用 catalog 中的模型
-    if (catalog && presetKey in ['anthropic', 'openai', 'deepseek', 'kimi', 'glm', 'qwen']) {
+    if (catalog && ['anthropic', 'openai', 'deepseek', 'kimi', 'glm', 'qwen'].includes(presetKey)) {
       const provider = catalog.providers.find((p) => p.id === presetKey)
       if (provider) {
         const catalogModels = provider.models
@@ -188,7 +219,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         formBaseUrl: baseUrl,
       }),
     )
-  }, [model, presetKey, activeProvider, baseUrl, catalog, selectedProviderType])
+  }, [model, presetKey, activeProvider, baseUrl, catalog, selectedProviderType, remoteModels, persistedModels])
 
   /* ── Actions ── */
   const handleTest = useCallback(async () => {
@@ -237,7 +268,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         return
       }
       if (selectedProviderType === 'anthropic_compat' && !effectiveBaseUrl) {
-        setToast({ variant: 'error', message: 'Anthropic 兼容协议请先填写 Base URL' })
+        setToast({ variant: 'error', message: 'Anthropic 兼容协议请先填写请求地址' })
         return
       }
 
@@ -249,6 +280,12 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         apiKey: trimmedApiKey,
         model: trimmedModel,
         baseUrl: selectedProviderType === 'anthropic' ? undefined : effectiveBaseUrl || undefined,
+      }
+      if (presetKey !== 'custom') {
+        setProviderModelOptions({
+          ...useSettingsStore.getState().providerModelOptions,
+          [presetKey]: remoteModels.length > 0 ? remoteModels : modelOptions,
+        })
       }
       setProviders([next])
       setActiveProvider(id)
@@ -273,10 +310,52 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     selectedProviderType,
     setProviders,
     setActiveProvider,
+    setProviderModelOptions,
+    remoteModels,
+    modelOptions,
   ])
 
   const displayModel =
     model || activeProvider?.model || currentPreset.defaultModel || defaultModelForPresetKey('anthropic')
+
+  const refreshModels = useCallback(async () => {
+    if (presetKey === 'custom') {
+      setToast({ variant: 'error', message: '自定义供应商暂不支持在线获取模型列表' })
+      return
+    }
+    if (!apiKey.trim()) {
+      setToast({ variant: 'error', message: '请先填写 API Key' })
+      return
+    }
+    setRefreshingModels(true)
+    const requestId = modelRequestRef.current + 1
+    modelRequestRef.current = requestId
+    try {
+      const response = await window.electronAPI.settings.listModels({
+        presetKey: presetKey as 'anthropic' | 'openai' | 'deepseek' | 'kimi' | 'glm' | 'qwen',
+        apiKey: apiKey.trim(),
+      })
+      if (!response.success || !response.data) {
+        if (modelRequestRef.current !== requestId) return
+        setToast({ variant: 'error', message: response.error ?? '获取模型列表失败' })
+        return
+      }
+      if (modelRequestRef.current !== requestId) return
+      setRemoteModels(response.data.models)
+      setModelOpen(true)
+      setToast({ variant: 'success', message: `已获取 ${response.data.models.length} 个模型` })
+    } catch {
+      if (modelRequestRef.current !== requestId) return
+      setToast({ variant: 'error', message: '获取模型列表失败' })
+    } finally {
+      if (modelRequestRef.current === requestId) setRefreshingModels(false)
+    }
+  }, [apiKey, presetKey])
+
+  const clearCurrentConversation = useCallback(() => {
+    useSessionContextStore.getState().resetConversationContext()
+    setToast({ variant: 'success', message: '当前 AI 对话已清空' })
+  }, [])
 
   return (
     <>
@@ -296,9 +375,9 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           type="button"
           onClick={onBack}
           className="flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)] hover:bg-[var(--hover)] hover:border-[var(--border-visible)] transition-colors"
-          style={{ padding: '6px 10px', fontSize: 13, fontFamily: 'var(--font-ui)', cursor: 'pointer' }}
+          style={{ padding: '8px 14px', fontSize: 14, fontFamily: 'var(--font-ui)', cursor: 'pointer' }}
         >
-          ← 返回
+          返回
         </button>
         <h1
           style={{
@@ -330,7 +409,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           {/* ── 1. AI 提供商（预设类型） ── */}
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-ui)', color: 'var(--text-primary)', marginBottom: 8 }}>
-              预设类型
+              供应商
             </div>
             <div style={{ position: 'relative' }}>
               <button
@@ -341,7 +420,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
                   {currentPreset.label}
                 </span>
-                <span style={{ fontSize: 11, lineHeight: 1, fontFamily: 'var(--font-ui)', color: 'var(--text-tertiary)', fontWeight: 500 }}>▾</span>
+                <ChevronDown size={16} aria-hidden />
               </button>
               {presetOpen && (
                 <>
@@ -373,7 +452,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
                     {getProtocolLabel(customProviderType)}
                   </span>
-                  <span style={{ fontSize: 11, lineHeight: 1, fontFamily: 'var(--font-ui)', color: 'var(--text-tertiary)', fontWeight: 500 }}>▾</span>
+                  <ChevronDown size={16} aria-hidden />
                 </button>
 
                 {protocolOpen && (
@@ -474,7 +553,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           {/* ── 3. Base URL（设计稿始终可见；非兼容类预设只读展示官方地址） ── */}
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-ui)', color: 'var(--text-primary)', marginBottom: 8 }}>
-              Base URL
+              请求地址
             </div>
             <div
               style={{
@@ -522,8 +601,11 @@ export function SettingsView({ onBack }: SettingsViewProps) {
 
           {/* ── 4. 默认模型 ── */}
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-ui)', color: 'var(--text-primary)', marginBottom: 8 }}>
-              默认模型
+            <div className="flux-settings-label-row">
+              <span>默认模型</span>
+              <button type="button" className="flux-settings-icon-btn" title="获取模型列表" disabled={refreshingModels || presetKey === 'custom'} onClick={() => void refreshModels()}>
+                <RefreshCw size={16} className={refreshingModels ? 'spin' : undefined} aria-hidden />
+              </button>
             </div>
             <div style={{ position: 'relative' }}>
               <button
@@ -534,7 +616,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
                   {displayModel}
                 </span>
-                <span style={{ fontSize: 11, lineHeight: 1, fontFamily: 'var(--font-ui)', color: 'var(--text-tertiary)', fontWeight: 500 }}>▾</span>
+                <ChevronDown size={16} aria-hidden />
               </button>
               {modelOpen && (
                 <>
@@ -579,45 +661,22 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             </button>
           </div>
 
-          {/* ── 7. Separator: height 1, fill --log-border-subtle ── */}
-          <div style={{ height: 1, background: 'var(--border-subtle)' }} />
-
-          {/* ── 8. 主题 ── */}
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-ui)', color: 'var(--text-primary)', marginBottom: 8 }}>
-              主题
-            </div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  if (theme !== 'dark') {
-                    toggleTheme()
-                    void window.electronAPI.settings.save({
-                      theme: useSettingsStore.getState().theme,
-                    })
-                  }
-                }}
-                className={theme === 'dark' ? 'btn-accent' : 'flux-btn-secondary'}
-              >
-                暗色
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (theme !== 'light') {
-                    toggleTheme()
-                    void window.electronAPI.settings.save({
-                      theme: useSettingsStore.getState().theme,
-                    })
-                  }
-                }}
-                className={theme === 'light' ? 'btn-accent' : 'flux-btn-secondary'}
-              >
-                亮色
-              </button>
-            </div>
-          </div>
+          <section className="flux-settings-advanced">
+            <button type="button" className="flux-settings-advanced-trigger" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((value) => !value)}>
+              {advancedOpen ? <ChevronDown size={17} /> : <ChevronRight size={17} />}<span>高级设置</span>
+            </button>
+            {advancedOpen && <div className="flux-settings-advanced-body">
+              <h2>AI 助手</h2>
+              <div className="flux-settings-data-row"><span>本次对话</span><button type="button" onClick={clearCurrentConversation} className="flux-btn-secondary">清空当前对话</button></div>
+              <p className="flux-settings-save-note">Flux 默认只保留本次运行内的 AI 对话，重启后不恢复历史。</p>
+              <h2>系统集成</h2>
+              <div className="flux-settings-data-row">
+                <span>Markdown/文本/日志默认打开方式</span>
+                <button type="button" className="flux-btn-secondary" onClick={() => void window.electronAPI.shell.openExternal('ms-settings:defaultapps')}>设为默认应用</button>
+              </div>
+              <p className="flux-settings-save-note">点击后打开 Windows 默认应用设置，选择 Flux 作为对应文件类型的默认打开方式；双击文档时 Flux 会自动加载所在文件夹并打开文档。</p>
+            </div>}
+          </section>
 
         </div>
         </div>

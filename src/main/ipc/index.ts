@@ -7,13 +7,17 @@ import { registerEditorHandlers } from './editor-handlers'
 import { registerLogHandlers } from './log-handlers'
 import { registerSessionHandlers } from './session-handlers'
 import { registerShellHandlers } from './shell-handlers'
-import { SkillManager } from '../skill/skill-manager'
+import { registerRecentHandlers } from './recent-handlers'
+import { registerReviewHandlers } from './review-handlers'
+import { registerAiActionHandlers } from './ai-action-handlers'
+import { registerAttachmentBackupHandlers } from './attachment-backup-handlers'
 
 export function registerAllHandlers(): void {
-  // Initialize skill manager first (loads built-in + user skills)
-  SkillManager.getInstance().init()
-
   registerFileHandlers()
+  registerAttachmentBackupHandlers()
+  registerRecentHandlers()
+  registerReviewHandlers()
+  registerAiActionHandlers()
   registerSettingsHandlers()
   registerAgentHandlers()
   registerEditorHandlers()

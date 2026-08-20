@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { json } from '@codemirror/lang-json'
 import { markdown } from '@codemirror/lang-markdown'
+import { codeFolding, foldGutter, foldKeymap } from '@codemirror/language'
 import { search, highlightSelectionMatches } from '@codemirror/search'
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
 import { defaultKeymap } from '@codemirror/commands'
@@ -24,10 +25,12 @@ const hiddenSearchPanel = search({
 const baseExtensions: Extension[] = [
   EditorView.lineWrapping,
   lineNumbers(),
+  foldGutter(),
+  codeFolding(),
   highlightActiveLine(),
   highlightSelectionMatches(),
   hiddenSearchPanel,
-  keymap.of([...defaultKeymap]),
+  keymap.of([...defaultKeymap, ...foldKeymap]),
 ]
 
 function languageExtensionsForMode(mode: EditorMode, currentFile: string | null): Extension[] {
@@ -79,16 +82,21 @@ function isLikelyLogText(content: string): boolean {
 
 export function useEditor() {
   const mode = useEditorStore((s) => s.mode)
-  const content = useEditorStore((s) => s.content)
+  const editorHydrationEpoch = useEditorStore((s) => s.editorHydrationEpoch)
   const currentFile = useFileStore((s) => s.currentFile)
   const setContent = useEditorStore((s) => s.setContent)
 
+  const enableLogColors = useMemo(() => {
+    if (isLogFile(currentFile)) return true
+    if (!isTxtFile(currentFile)) return false
+    return isLikelyLogText(useEditorStore.getState().content)
+  }, [currentFile, editorHydrationEpoch])
+
   const extensions = useMemo(() => {
     const lang = languageExtensionsForMode(mode, currentFile)
-    const enableLogColors = isLogFile(currentFile) || (isTxtFile(currentFile) && isLikelyLogText(content))
     const logColors = enableLogColors ? [logLineColoring] : []
     return [...baseExtensions, ...lang, ...logColors, fluxSyntaxHighlighting]
-  }, [mode, currentFile, content])
+  }, [mode, currentFile, enableLogColors])
 
   const handleChange = useCallback(
     (value: string) => {

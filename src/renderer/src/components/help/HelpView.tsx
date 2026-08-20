@@ -28,7 +28,7 @@ export function HelpView({ onBack }: HelpViewProps) {
           className="flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)] hover:bg-[var(--hover)] hover:border-[var(--border-visible)] transition-colors"
           style={{ padding: '6px 10px', fontSize: 13, fontFamily: 'var(--font-ui)', cursor: 'pointer' }}
         >
-          ← 返回
+          返回
         </button>
         <h1
           style={{
@@ -94,7 +94,7 @@ export function HelpView({ onBack }: HelpViewProps) {
           </div>
         </aside>
 
-        <section className="flex-1 min-w-0 min-h-0" style={{ background: 'var(--bg-viewer)' }}>
+        <section className="help-markdown-preview flex-1 min-w-0 min-h-0" style={{ background: 'var(--bg-viewer)' }}>
           <MdPreview
             content={helpContent}
             scrollToHeadingId={scrollTarget.id}

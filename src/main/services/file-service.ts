@@ -1,7 +1,17 @@
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 import * as iconv from 'iconv-lite'
-import { FileInfo } from '../../shared/types'
+import type {
+  FileInfo,
+  FileVersion,
+  FluxErrorCode,
+  LineEnding,
+  SaveTextRequest,
+  SaveTextResult,
+  TextDocumentSnapshot,
+  TextEncoding,
+} from '../../shared/types'
 import {
   READ_FILE_DEFAULT_LIMIT,
   READ_FILE_MAX_CHARS,
@@ -18,7 +28,7 @@ export function detectEncoding(buffer: Buffer): string {
   // UTF-16 LE BOM: FF FE
   if (buffer[0] === 0xff && buffer[1] === 0xfe) return 'utf16le'
   // UTF-16 BE BOM: FE FF
-  if (buffer[0] === 0xfe && buffer[1] === 0xff) return 'utf16le'
+  if (buffer[0] === 0xfe && buffer[1] === 0xff) return 'utf16be'
 
   // Try UTF-8 first; if invalid sequences found, fall back to GBK
   try {
@@ -32,6 +42,201 @@ export function detectEncoding(buffer: Buffer): string {
   } catch {
     return 'gbk'
   }
+}
+
+export class FluxFileError extends Error {
+  constructor(
+    public readonly code: FluxErrorCode,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'FluxFileError'
+  }
+}
+
+function hashBuffer(buffer: Buffer): string {
+  return crypto.createHash('sha256').update(buffer).digest('hex')
+}
+
+function detectUtf16WithoutBom(buffer: Buffer): TextEncoding | null {
+  if (buffer.length < 4) return null
+  const sampleLength = Math.min(buffer.length, 4096)
+  let evenNulls = 0
+  let oddNulls = 0
+  for (let index = 0; index < sampleLength; index += 1) {
+    if (buffer[index] !== 0) continue
+    if (index % 2 === 0) evenNulls += 1
+    else oddNulls += 1
+  }
+  const pairs = Math.floor(sampleLength / 2)
+  if (oddNulls / pairs > 0.3 && evenNulls / pairs < 0.05) return 'utf16le'
+  if (evenNulls / pairs > 0.3 && oddNulls / pairs < 0.05) return 'utf16be'
+  return null
+}
+
+export function detectTextEncoding(buffer: Buffer): TextEncoding {
+  if (buffer.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) return 'utf8-bom'
+  if (buffer.subarray(0, 2).equals(Buffer.from([0xff, 0xfe]))) return 'utf16le'
+  if (buffer.subarray(0, 2).equals(Buffer.from([0xfe, 0xff]))) return 'utf16be'
+  const inferredUtf16 = detectUtf16WithoutBom(buffer)
+  if (inferredUtf16) return inferredUtf16
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+    return 'utf8'
+  } catch {
+    return 'gbk'
+  }
+}
+
+function isProbablyBinary(buffer: Buffer, encoding: TextEncoding): boolean {
+  if (encoding === 'utf16le' || encoding === 'utf16be') return false
+  const sampleLength = Math.min(buffer.length, 8192)
+  if (sampleLength === 0) return false
+  let suspicious = 0
+  for (let index = 0; index < sampleLength; index += 1) {
+    const byte = buffer[index]
+    if (byte === 0) return true
+    if (byte < 0x08 || (byte > 0x0d && byte < 0x20)) suspicious += 1
+  }
+  return suspicious / sampleLength > 0.02
+}
+
+function decodeText(buffer: Buffer, encoding: TextEncoding): string {
+  const iconvEncoding = encoding === 'utf8-bom' ? 'utf8' : encoding
+  return iconv.decode(buffer, iconvEncoding).replace(/^\uFEFF/, '')
+}
+
+function detectLineEnding(content: string): LineEnding {
+  const crlfCount = content.match(/\r\n/g)?.length ?? 0
+  const lfCount = content.match(/(^|[^\r])\n/g)?.length ?? 0
+  return crlfCount > lfCount ? 'crlf' : 'lf'
+}
+
+function getVersionFromBuffer(stat: fs.Stats, buffer: Buffer): FileVersion {
+  return {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    contentHash: hashBuffer(buffer),
+  }
+}
+
+export function readText(filePath: string): TextDocumentSnapshot {
+  if (!path.isAbsolute(filePath)) {
+    throw new FluxFileError('INVALID_DATA', 'Text file path must be absolute')
+  }
+  let stat: fs.Stats
+  let buffer: Buffer
+  try {
+    stat = fs.statSync(filePath)
+    buffer = fs.readFileSync(filePath)
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException
+    const code = nodeError.code === 'ENOENT' ? 'NOT_FOUND' : nodeError.code === 'EACCES' ? 'PERMISSION_DENIED' : 'IO_ERROR'
+    throw new FluxFileError(code, `Failed to read text file: ${nodeError.message}`)
+  }
+  if (!stat.isFile()) throw new FluxFileError('UNSUPPORTED_FORMAT', 'Path is not a regular file')
+  const encoding = detectTextEncoding(buffer)
+  if (isProbablyBinary(buffer, encoding)) {
+    throw new FluxFileError('UNSUPPORTED_FORMAT', 'Binary files are not supported')
+  }
+  const content = decodeText(buffer, encoding)
+  return {
+    filePath: path.resolve(filePath),
+    content,
+    encoding,
+    lineEnding: detectLineEnding(content),
+    version: getVersionFromBuffer(stat, buffer),
+    sampled: false,
+  }
+}
+
+function encodeText(content: string, encoding: TextEncoding): Buffer {
+  const iconvEncoding = encoding === 'utf8-bom' ? 'utf8' : encoding
+  const encoded = iconv.encode(content, iconvEncoding)
+  if (decodeText(encoded, encoding) !== content) {
+    throw new FluxFileError(
+      'ENCODING_UNREPRESENTABLE',
+      `Content cannot be represented as ${encoding}`,
+    )
+  }
+  if (encoding === 'utf8-bom') return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), encoded])
+  if (encoding === 'utf16le') return Buffer.concat([Buffer.from([0xff, 0xfe]), encoded])
+  if (encoding === 'utf16be') return Buffer.concat([Buffer.from([0xfe, 0xff]), encoded])
+  return encoded
+}
+
+function normalizeLineEndings(content: string, lineEnding: LineEnding): string {
+  const normalized = content.replace(/\r\n|\r/g, '\n')
+  return lineEnding === 'crlf' ? normalized.replace(/\n/g, '\r\n') : normalized
+}
+
+function versionsMatch(expected: FileVersion, actual: FileVersion): boolean {
+  return expected.mtimeMs === actual.mtimeMs &&
+    expected.size === actual.size &&
+    expected.contentHash === actual.contentHash
+}
+
+async function renameWithRetry(tempPath: string, targetPath: string): Promise<void> {
+  const retryable = new Set(['EACCES', 'EBUSY', 'EPERM'])
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await fs.promises.rename(tempPath, targetPath)
+      return
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException
+      if (!retryable.has(nodeError.code ?? '') || attempt === 3) throw error
+      await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)))
+    }
+  }
+}
+
+export async function saveText(request: SaveTextRequest): Promise<SaveTextResult> {
+  if (!path.isAbsolute(request.filePath)) {
+    throw new FluxFileError('INVALID_DATA', 'Text file path must be absolute')
+  }
+  const current = readText(request.filePath)
+  if (!versionsMatch(request.expectedVersion, current.version)) {
+    throw new FluxFileError('VERSION_CONFLICT', 'File changed on disk since it was opened')
+  }
+  const content = normalizeLineEndings(request.content, request.lineEnding)
+  const encoded = encodeText(content, request.encoding)
+  const targetPath = path.resolve(request.filePath)
+  const tempPath = path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.flux-${process.pid}-${crypto.randomUUID()}.tmp`,
+  )
+  const mode = fs.statSync(targetPath).mode
+  const handle = await fs.promises.open(tempPath, 'wx', mode)
+  try {
+    await handle.writeFile(encoded)
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  try {
+    await renameWithRetry(tempPath, targetPath)
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException
+    const code = nodeError.code === 'EACCES' ? 'PERMISSION_DENIED' : 'IO_ERROR'
+    throw new FluxFileError(code, `Failed to replace text file atomically: ${nodeError.message}`)
+  }
+  return { version: readText(targetPath).version }
+}
+
+export async function writeTextLegacy(filePath: string, content: string): Promise<void> {
+  const resolved = path.resolve(filePath)
+  if (!fs.existsSync(resolved)) {
+    fs.mkdirSync(path.dirname(resolved), { recursive: true })
+    fs.writeFileSync(resolved, '', 'utf8')
+  }
+  const snapshot = readText(resolved)
+  await saveText({
+    filePath: resolved,
+    content,
+    encoding: snapshot.encoding,
+    lineEnding: snapshot.lineEnding,
+    expectedVersion: snapshot.version,
+  })
 }
 
 export function getFileInfo(filePath: string): FileInfo {
@@ -131,41 +336,43 @@ export function readFileLineRange(
   let truncated = false
   let startLine = 0
   let endLine = 0
+  const decoder = iconv.getDecoder(encoding)
   let carry = ''
   const chunkSize = 256 * 1024
   let pos = 0
 
-  while (pos < stat.size) {
-    const toRead = Math.min(chunkSize, stat.size - pos)
-    const buf = Buffer.alloc(toRead)
-    fs.readSync(fd, buf, 0, toRead, pos)
-    pos += toRead
-    const text = carry + iconv.decode(buf, encoding)
-    const parts = text.split('\n')
-    carry = parts.pop() ?? ''
+  try {
+    while (pos < stat.size) {
+      const toRead = Math.min(chunkSize, stat.size - pos)
+      const buf = Buffer.alloc(toRead)
+      const bytesRead = fs.readSync(fd, buf, 0, toRead, pos)
+      if (bytesRead === 0) break
+      pos += bytesRead
+      const text = carry + decoder.write(buf.subarray(0, bytesRead))
+      const parts = text.split('\n')
+      carry = parts.pop() ?? ''
 
-    for (const line of parts) {
-      if (lineIndex >= skipLines) {
-        if (collected.length === 0) startLine = lineIndex + 1
-        const nextLen = charCount + line.length + (collected.length > 0 ? 1 : 0)
-        if (collected.length < cappedLimit && nextLen <= READ_FILE_MAX_CHARS) {
-          collected.push(line)
-          charCount = nextLen
-          endLine = lineIndex + 1
-        } else {
-          truncated = true
+      for (const line of parts) {
+        if (lineIndex >= skipLines) {
+          if (collected.length === 0) startLine = lineIndex + 1
+          const nextLen = charCount + line.length + (collected.length > 0 ? 1 : 0)
+          if (collected.length < cappedLimit && nextLen <= READ_FILE_MAX_CHARS) {
+            collected.push(line)
+            charCount = nextLen
+            endLine = lineIndex + 1
+          } else {
+            truncated = true
+          }
         }
+        lineIndex++
       }
-      lineIndex++
-    }
 
-    if (truncated && collected.length >= cappedLimit) {
-      // Still scan to EOF for total line count without storing
-      continue
+      if (truncated && collected.length >= cappedLimit) continue
+      if (truncated && charCount >= READ_FILE_MAX_CHARS) continue
     }
-    if (truncated && charCount >= READ_FILE_MAX_CHARS) {
-      continue
-    }
+    carry += decoder.end()
+  } finally {
+    fs.closeSync(fd)
   }
 
   // Handle trailing content after the last newline (only if non-empty)
@@ -183,8 +390,6 @@ export function readFileLineRange(
     }
     lineIndex++
   }
-
-  fs.closeSync(fd)
 
   const totalLines = lineIndex
   return {

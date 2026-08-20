@@ -45,6 +45,7 @@ export function useProvider(): UseProviderReturn {
           activeProvider?: string | null
           theme?: string
           configured?: boolean
+          providerModelOptions?: Record<string, string[]>
         }
       }
       if (resp?.success && resp.data) {
@@ -63,6 +64,9 @@ export function useProvider(): UseProviderReturn {
         }
         if (resp.data.theme === 'light' || resp.data.theme === 'dark') {
           setTheme(resp.data.theme)
+        }
+        if (resp.data.providerModelOptions) {
+          useSettingsStore.getState().setProviderModelOptions(resp.data.providerModelOptions)
         }
       }
     } catch (_err) {
@@ -96,12 +100,13 @@ export function useProvider(): UseProviderReturn {
   const save = useCallback(async () => {
     const current = useSettingsStore.getState()
     const workspaceRoot = useFileStore.getState().workspaceRoot
-    const payload = {
-      providers: current.providers.slice(0, 1).map((p) => ({ ...p })),
-      activeProvider: current.activeProvider,
-      theme: current.theme,
-      workspaceRoot,
-    }
+      const payload = {
+        providers: current.providers.slice(0, 1).map((p) => ({ ...p })),
+        activeProvider: current.activeProvider,
+        theme: current.theme,
+        providerModelOptions: current.providerModelOptions,
+        workspaceRoot,
+      }
 
     const res = (await window.electronAPI.settings.save(payload)) as {
       success?: boolean

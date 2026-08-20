@@ -1,0 +1,200 @@
+.flux-milkdown-editor {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+.flux-milkdown-root {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.flux-milkdown-editor .milkdown-table-block {
+  position: relative;
+  margin: 1.25em 0;
+  padding: 12px 0 0 12px;
+}
+
+.flux-milkdown-editor .milkdown-table-block .table-wrapper {
+  position: relative;
+  overflow: auto;
+}
+
+.flux-milkdown-editor .milkdown-table-block table.children {
+  width: 100%;
+  min-width: 360px;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.flux-milkdown-editor .milkdown-table-block th,
+.flux-milkdown-editor .milkdown-table-block td {
+  min-width: 88px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-visible);
+  vertical-align: top;
+}
+
+.flux-milkdown-editor .milkdown-table-block th {
+  background: var(--bg-panel);
+  font-weight: 600;
+}
+
+.flux-milkdown-editor .milkdown-table-block .handle {
+  position: absolute;
+  z-index: 5;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.flux-milkdown-editor .milkdown-table-block .handle[data-show='true'] {
+  display: none;
+}
+
+.flux-table-toolbar {
+  position: absolute;
+  z-index: 12;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  transform: translateY(-100%);
+  border: 1px solid var(--border-visible);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, .2);
+}
+
+.flux-table-toolbar>button,
+.flux-table-size-popover button {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.flux-table-toolbar>button:hover,
+.flux-table-toolbar>button[aria-expanded='true'],
+.flux-table-size-popover button:hover:not(:disabled) { color: var(--text-primary); background: var(--hover); }
+
+.flux-table-size-popover {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  display: grid;
+  min-width: 180px;
+  gap: 4px;
+  padding: 7px;
+  border: 1px solid var(--border-visible);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .24);
+}
+
+.flux-table-size-popover>div { display: grid; grid-template-columns: 18px 1fr 28px 30px 28px; align-items: center; gap: 4px; color: var(--text-secondary); font: 12px var(--font-ui); }
+.flux-table-size-popover output { text-align: center; color: var(--text-primary); font: 12px var(--font-mono); }
+.flux-table-size-popover button:disabled { opacity: .35; cursor: default; }
+
+.flux-milkdown-editor .milkdown-table-block .cell-handle {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-visible);
+  border-radius: 4px;
+  background: var(--bg-card);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .2);
+  cursor: grab;
+}
+
+.flux-milkdown-editor .milkdown-table-block [data-role='col-drag-handle'] {
+  top: -12px;
+}
+
+.flux-milkdown-editor .milkdown-table-block [data-role='row-drag-handle'] {
+  left: -12px;
+}
+
+.flux-milkdown-editor .milkdown-table-block .line-handle {
+  pointer-events: none;
+}
+
+.flux-milkdown-editor .milkdown-table-block .line-handle::before {
+  position: absolute;
+  content: '';
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.flux-milkdown-editor .milkdown-table-block [data-role='x-line-drag-handle']::before {
+  right: 0;
+  left: 0;
+  height: 2px;
+}
+
+.flux-milkdown-editor .milkdown-table-block [data-role='y-line-drag-handle']::before {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+}
+
+.flux-milkdown-editor .milkdown-table-block .add-button,
+.flux-milkdown-editor .milkdown-table-block .button-group button {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-visible);
+  border-radius: 4px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  cursor: pointer;
+}
+
+.flux-milkdown-editor .milkdown-table-block .add-button {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+}
+
+.flux-milkdown-editor .milkdown-table-block .button-group {
+  position: absolute;
+  top: 26px;
+  left: 0;
+  display: none;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border-visible);
+  border-radius: 4px;
+  background: var(--bg-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .24);
+}
+
+.flux-milkdown-editor .milkdown-table-block .button-group[data-show='true'] {
+  display: flex;
+}
+
+.flux-milkdown-editor .milkdown-table-block .milkdown-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.flux-milkdown-editor .milkdown-table-block .selectedCell::after {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.flux-milkdown-editor .milkdown-table-block .drag-preview[data-show='false'] {
+  display: none;
+}

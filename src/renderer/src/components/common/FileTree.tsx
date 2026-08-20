@@ -110,6 +110,9 @@ export function FileTree() {
   const files = useFileStore((s) => s.files)
   const workspaceRoot = useFileStore((s) => s.workspaceRoot)
   const workspaceFiles = useFileStore((s) => s.workspaceFiles)
+  const workspaceScanVersion = useFileStore((s) => s.workspaceScanVersion)
+  const workspaceScanStatus = useFileStore((s) => s.workspaceScanStatus)
+  const workspaceScanError = useFileStore((s) => s.workspaceScanError)
   const openFolder = useFileStore((s) => s.openFolder)
   const clearWorkspace = useFileStore((s) => s.clearWorkspace)
   const openWorkspaceFile = useFileStore((s) => s.openWorkspaceFile)
@@ -215,6 +218,11 @@ export function FileTree() {
               )}
             </div>
           </div>
+          {workspaceScanStatus === 'error' && (
+            <p className="shrink-0 text-app-xs text-[var(--danger)] px-1 mb-1" role="alert">
+              {workspaceScanError ?? '打开文件夹失败'}
+            </p>
+          )}
           {workspaceRoot && (
             <p
               className="shrink-0 text-app-xs text-[var(--text-hint)] font-[var(--font-mono)] px-1 mb-1 truncate"
@@ -228,6 +236,9 @@ export function FileTree() {
               <WorkspaceTreePanel
                 workspaceRoot={workspaceRoot}
                 workspaceFiles={workspaceFiles}
+                scanVersion={workspaceScanVersion}
+                scanStatus={workspaceScanStatus}
+                scanError={workspaceScanError}
                 currentFile={currentFile}
                 onOpenFile={(p) => void openWorkspaceFile(p)}
               />

@@ -2,9 +2,9 @@ import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 
-/**
- * 工作根目录：打包后为可执行文件所在目录；开发时为进程 cwd（一般在项目根执行 npm run dev）。
- */
+export type ReleaseMode = 'installed' | 'portable'
+
+/** Packaged resource root; retained for bundled read-only resources. */
 export function getWorkRoot(): string {
   if (app.isPackaged) {
     return path.dirname(process.execPath)
@@ -12,55 +12,73 @@ export function getWorkRoot(): string {
   return process.cwd()
 }
 
-function ensureWritableDir(primary: string, fallback: string): string {
-  try {
-    fs.mkdirSync(primary, { recursive: true })
-    fs.accessSync(primary, fs.constants.W_OK)
-    return primary
-  } catch {
-    fs.mkdirSync(fallback, { recursive: true })
-    return fallback
+export function getReleaseMode(): ReleaseMode {
+  if (
+    process.env.FLUX_PORTABLE === '1' ||
+    process.env.PORTABLE_EXECUTABLE_DIR ||
+    process.env.PORTABLE_EXECUTABLE_FILE
+  ) {
+    return 'portable'
   }
+  return 'installed'
 }
 
-/** 内置 Skill 目录（只读，随应用打包，位于 app.getAppPath()/skills） */
+function getPortableRoot(): string {
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    return path.resolve(process.env.PORTABLE_EXECUTABLE_DIR)
+  }
+  if (process.env.PORTABLE_EXECUTABLE_FILE) {
+    return path.dirname(path.resolve(process.env.PORTABLE_EXECUTABLE_FILE))
+  }
+  return path.dirname(process.execPath)
+}
+
+/** Private writable data root, selected only by explicit release mode. */
+export function getPrivateDataRoot(): string {
+  const root = getReleaseMode() === 'portable'
+    ? path.join(getPortableRoot(), 'data')
+    : app.getPath('userData')
+  fs.mkdirSync(root, { recursive: true })
+  return root
+}
+
+function getPrivateDir(name: string): string {
+  const dir = path.join(getPrivateDataRoot(), name)
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+export function getConfigDir(): string {
+  return getPrivateDir('config')
+}
+
+export function getCacheDir(): string {
+  return getPrivateDir('cache')
+}
+
+export function getBackupCacheDir(): string {
+  return getPrivateDir('backup-cache')
+}
+
+export function getSessionsDir(): string {
+  return getPrivateDir('sessions')
+}
+
+export function getLogsDir(): string {
+  return getPrivateDir('logs')
+}
+
+/** Read-only Skill directory bundled with the application. */
 export function getBuiltinSkillsDir(): string {
   return path.join(app.getAppPath(), 'skills')
 }
 
-/** flux-settings.json 所在目录（自动创建） */
-export function getConfigDir(): string {
-  const primary = path.join(getWorkRoot(), 'config')
-  const fallback = path.join(app.getPath('userData'), 'config')
-  return ensureWritableDir(primary, fallback)
-}
-
-/**
- * 用户导入的 Skill 根目录（与 config 同级策略：工作目录下 skills/）。
- *
- * 若工作目录下的 skills/ 与内置目录为同一路径（常见于在 flux-app 根目录运行 npm run dev），
- * 则不得用作「用户导入」扫描区，否则会与内置 skills/*.md 重叠扫描，列表中出现重复。
- * 此时固定使用 userData/skills。
- */
 export function getUserSkillsRoot(): string {
-  const primary = path.join(getWorkRoot(), 'skills')
-  const primaryIsolated = path.join(getWorkRoot(), 'skills-user')
-  const fallback = path.join(app.getPath('userData'), 'skills')
-  const resolvedPrimary = path.resolve(primary)
-  const resolvedBuiltin = path.resolve(getBuiltinSkillsDir())
-
-  if (resolvedPrimary === resolvedBuiltin) {
-    // 开发态常见：workRoot/skills 与内置目录重合。改用 workRoot/skills-user，
-    // 避免重复扫描内置技能，同时尽量不回落到 userData（通常在 C 盘）。
-    return ensureWritableDir(primaryIsolated, fallback)
-  }
-
-  return ensureWritableDir(primary, fallback)
+  return getPrivateDir('skills')
 }
 
 export function getUserSkillPackagesDir(): string {
-  const root = getUserSkillsRoot()
-  const pkg = path.join(root, 'packages')
-  fs.mkdirSync(pkg, { recursive: true })
-  return pkg
+  const dir = path.join(getUserSkillsRoot(), 'packages')
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
 }

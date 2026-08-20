@@ -1,0 +1,10 @@
+#!/bin/sh
+hook_dir="${0%/*}"
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$hook_dir/review-check.ps1"
+if [ $? -ne 0 ]; then
+  exit 1
+fi
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$hook_dir/pre-commit-check.ps1"
+exit $?

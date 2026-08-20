@@ -23,6 +23,7 @@ interface ChatInputProps {
   quoteSourceLabel?: string
   /** 已安装 Skill，供 / 补全（Claude Code 风格） */
   slashSkills: SkillMeta[]
+  onCompact?: (focus?: string) => void
 }
 
 export function ChatInput({
@@ -34,6 +35,7 @@ export function ChatInput({
   mentionFiles,
   quoteSourceLabel,
   slashSkills,
+  onCompact,
 }: ChatInputProps) {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<string[]>([])
@@ -210,6 +212,12 @@ export function ChatInput({
   const handleSend = useCallback(() => {
     const trimmed = text.trim()
     if ((!trimmed && skillInvocations.length === 0) || isRunning || disabled) return
+    const compact = /^\/compact(?:\s+(.+))?$/i.exec(trimmed)
+    if (compact) {
+      onCompact?.(compact[1]?.trim())
+      setText('')
+      return
+    }
     pushInputHistory(trimmed)
     atOpenRef.current = false
     slashOpenRef.current = false
@@ -227,7 +235,7 @@ export function ChatInput({
     setText('')
     setAttachments([])
     setSkillInvocations([])
-  }, [text, isRunning, disabled, onSend, attachments, skillInvocations, pushInputHistory])
+  }, [text, isRunning, disabled, onSend, attachments, skillInvocations, pushInputHistory, onCompact])
 
   const pickMention = useCallback(
     (path: string) => {

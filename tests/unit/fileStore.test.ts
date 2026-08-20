@@ -2,26 +2,43 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 // ── Mock window.electronAPI BEFORE importing fileStore ──
 const mockRead = vi.fn()
+const mockReadText = vi.fn()
 const mockGetInfo = vi.fn()
 const mockOpen = vi.fn()
 const mockReadStream = vi.fn()
 const mockOpenFolder = vi.fn()
+const mockScanWorkspace = vi.fn()
+const mockCancelWorkspaceScan = vi.fn()
+const mockOnWorkspaceScan = vi.fn()
+const mockRecordRecent = vi.fn()
+const mockListSessions = vi.fn()
+const mockReadWorkspaceSession = vi.fn()
 
 vi.stubGlobal('window', {
   electronAPI: {
     file: {
       read: mockRead,
+      readText: mockReadText,
       getInfo: mockGetInfo,
       open: mockOpen,
       openFolder: mockOpenFolder,
       readStream: mockReadStream,
+      scanWorkspace: mockScanWorkspace,
+      cancelWorkspaceScan: mockCancelWorkspaceScan,
+      onWorkspaceScan: mockOnWorkspaceScan,
+    },
+    recent: { record: mockRecordRecent },
+    workspace: {
+      readSession: mockReadWorkspaceSession,
+      session: { list: mockListSessions },
     },
   },
 })
 
 import type { FileEntry } from '../../src/renderer/src/stores/fileStore'
-import { useFileStore } from '../../src/renderer/src/stores/fileStore'
+import { hasDirtyDocument, useFileStore } from '../../src/renderer/src/stores/fileStore'
 import { useEditorStore } from '../../src/renderer/src/stores/editorStore'
+import { registerUnsavedPrompt } from '../../src/renderer/src/utils/unsavedChangesGuard'
 
 function makeFile(overrides: Partial<FileEntry> = {}): FileEntry {
   return {
@@ -41,9 +58,14 @@ describe('useFileStore', () => {
     useFileStore.setState({
       files: [],
       currentFile: null,
+      mru: [],
       isLoading: false,
       workspaceRoot: null,
       workspaceFiles: [],
+      workspaceScanTaskId: null,
+      workspaceScanVersion: 0,
+      workspaceScanStatus: 'idle',
+      workspaceScanError: null,
     })
     // Reset editorStore too since fileStore may interact with it
     useEditorStore.setState({
@@ -56,6 +78,21 @@ describe('useFileStore', () => {
       previewContent: null,
     })
     vi.clearAllMocks()
+    mockReadText.mockResolvedValue({
+      success: true,
+      data: {
+        filePath: '/test.txt',
+        content: 'content',
+        encoding: 'utf8',
+        lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 7, contentHash: 'content' },
+        sampled: false,
+      },
+    })
+    mockCancelWorkspaceScan.mockResolvedValue({ success: true, data: { cancelled: true } })
+    mockRecordRecent.mockResolvedValue({ success: true })
+    mockListSessions.mockResolvedValue({ success: true, data: [] })
+    mockReadWorkspaceSession.mockResolvedValue({ success: true, data: null })
   })
 
   describe('addFile', () => {
@@ -85,6 +122,35 @@ describe('useFileStore', () => {
   })
 
   describe('removeFile', () => {
+    it('requires confirmation for a dirty non-current document using its normalized session key', () => {
+      const confirm = vi.fn().mockReturnValue(false)
+      vi.stubGlobal('confirm', confirm)
+      window.confirm = confirm
+      useFileStore.getState().addFile(makeFile({ path: 'C:\\Docs\\other.txt' }))
+      useFileStore.setState({ currentFile: 'C:\\Docs\\current.txt' })
+      useEditorStore.setState({
+        activeDocumentPath: 'c:/docs/other.txt',
+        documentSessions: {
+          'c:/docs/other.txt': {
+            filePath: 'C:\\Docs\\other.txt',
+            draft: 'changed',
+            dirty: true,
+            mode: 'text',
+            scrollTop: 0,
+            snapshot: null,
+            sampled: false,
+            lastActivatedAt: 0,
+          },
+        },
+      })
+
+      useFileStore.getState().removeFile('c:/docs/other.txt')
+
+      expect(confirm).toHaveBeenCalledOnce()
+      expect(useFileStore.getState().files).toHaveLength(1)
+      expect(hasDirtyDocument('C:\\DOCS\\OTHER.TXT')).toBe(true)
+    })
+
     it('removes a file by path', () => {
       useFileStore.getState().addFile(makeFile({ path: '/a.txt' }))
       useFileStore.getState().addFile(makeFile({ path: '/b.json' }))
@@ -142,6 +208,114 @@ describe('useFileStore', () => {
       })
       useFileStore.getState().setCurrentFile(null)
       expect(useFileStore.getState().currentFile).toBeNull()
+    })
+
+    it('does not switch away from a dirty document when confirmation is cancelled', async () => {
+      useFileStore.setState({
+        files: [makeFile({ path: '/a.md' }), makeFile({ path: '/b.md' })],
+        currentFile: '/a.md',
+      })
+      useEditorStore.getState().setDocumentSnapshot('/b.md', {
+        filePath: '/b.md', content: '# B', encoding: 'utf8', lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 3, contentHash: 'b' }, sampled: false,
+      })
+      useEditorStore.getState().setDocumentSnapshot('/a.md', {
+        filePath: '/a.md', content: '# A', encoding: 'utf8', lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 3, contentHash: 'a' }, sampled: false,
+      })
+      useEditorStore.getState().setContent('# changed')
+      const unregister = registerUnsavedPrompt(async () => 'cancel')
+
+      useFileStore.getState().setCurrentFile('/b.md')
+      await vi.waitFor(() => expect(useFileStore.getState().currentFile).toBe('/a.md'))
+      expect(useEditorStore.getState().content).toBe('# changed')
+      unregister()
+    })
+
+    it('discards the draft before switching when requested', async () => {
+      useFileStore.setState({
+        files: [makeFile({ path: '/a.md' }), makeFile({ path: '/b.md' })],
+        currentFile: '/a.md',
+      })
+      useEditorStore.getState().setDocumentSnapshot('/b.md', {
+        filePath: '/b.md', content: '# B', encoding: 'utf8', lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 3, contentHash: 'b' }, sampled: false,
+      })
+      useEditorStore.getState().setDocumentSnapshot('/a.md', {
+        filePath: '/a.md', content: '# A', encoding: 'utf8', lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 3, contentHash: 'a' }, sampled: false,
+      })
+      useEditorStore.getState().setContent('# changed')
+      const unregister = registerUnsavedPrompt(async () => 'discard')
+
+      useFileStore.getState().setCurrentFile('/b.md')
+      await vi.waitFor(() => expect(useFileStore.getState().currentFile).toBe('/b.md'))
+      expect(useEditorStore.getState().documentSessions['/a.md'].draft).toBe('# A')
+      expect(useEditorStore.getState().documentSessions['/a.md'].dirty).toBe(false)
+      unregister()
+    })
+  })
+
+  describe('MRU navigation', () => {
+    it('cycles forward and backward without discarding the active draft', () => {
+      useFileStore.getState().addFile(makeFile({ path: '/a.txt' }))
+      useFileStore.getState().addFile(makeFile({ path: '/b.txt' }))
+      useFileStore.getState().addFile(makeFile({ path: '/c.txt' }))
+      useFileStore.setState({ currentFile: '/a.txt', mru: ['/a.txt', '/b.txt', '/c.txt'] })
+
+      useFileStore.getState().cycleMru(1)
+      expect(useFileStore.getState().currentFile).toBe('/b.txt')
+
+      useFileStore.getState().cycleMru(-1)
+      expect(useFileStore.getState().currentFile).toBe('/a.txt')
+    })
+  })
+
+  describe('openFolder', () => {
+    it('keeps scan batches that arrive before the scan task id response', async () => {
+      let scanListener: ((event: {
+        taskId: string
+        status: 'batch' | 'complete'
+        entries?: Array<{ path: string; relativePath: string }>
+      }) => void) | null = null
+      const unsubscribe = vi.fn()
+      mockOnWorkspaceScan.mockImplementation((listener) => {
+        scanListener = listener
+        return unsubscribe
+      })
+      mockOpenFolder.mockResolvedValue({
+        success: true,
+        data: { root: 'C:\\workspace', files: [], workspaceConfig: null },
+      })
+      mockScanWorkspace.mockImplementation(async () => {
+        scanListener?.({
+          taskId: 'scan-1',
+          status: 'batch',
+          entries: [{ path: 'C:\\workspace\\notes.md', relativePath: 'notes.md' }],
+        })
+        return { success: true, data: { taskId: 'scan-1' } }
+      })
+
+      await useFileStore.getState().openFolder()
+
+      expect(useFileStore.getState().workspaceRoot).toBe('C:\\workspace')
+      expect(useFileStore.getState().workspaceFiles).toEqual([
+        { path: 'C:\\workspace\\notes.md', relativePath: 'notes.md' },
+      ])
+      expect(useFileStore.getState().workspaceScanStatus).toBe('scanning')
+
+      scanListener?.({ taskId: 'scan-1', status: 'complete' })
+      expect(useFileStore.getState().workspaceScanStatus).toBe('complete')
+      expect(unsubscribe).toHaveBeenCalledOnce()
+    })
+
+    it('exposes an open-folder failure in workspace scan state', async () => {
+      mockOpenFolder.mockResolvedValue({ success: false, error: 'Folder dialog failed' })
+
+      await useFileStore.getState().openFolder()
+
+      expect(useFileStore.getState().workspaceScanStatus).toBe('error')
+      expect(useFileStore.getState().workspaceScanError).toBe('Folder dialog failed')
     })
   })
 

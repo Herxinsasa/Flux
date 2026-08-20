@@ -127,7 +127,7 @@ export function SkillPanel({ onBack }: SkillPanelProps) {
 
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-primary)]">
+    <div className="flux-skill-surface flex flex-col h-full bg-[var(--bg-primary)]">
       <div
         className="flex items-center gap-3 shrink-0 border-b border-[var(--border-visible)]"
         style={{ padding: '20px 24px' }}
@@ -135,9 +135,9 @@ export function SkillPanel({ onBack }: SkillPanelProps) {
         <button
           onClick={onBack}
           className="flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)] hover:bg-[var(--hover)] hover:border-[var(--border-visible)] transition-colors"
-          style={{ padding: '6px 10px', fontSize: 13, fontFamily: 'var(--font-ui)', cursor: 'pointer' }}
+          style={{ padding: '8px 14px', fontSize: 14, fontFamily: 'var(--font-ui)', cursor: 'pointer' }}
         >
-          ← 返回
+          返回
         </button>
         <h1
           style={{

@@ -11,6 +11,16 @@ files:
   - package.json
   - skills/**/*.md
 
+# 运行时图标：main 进程 resolveWindowIcon() 从 process.resourcesPath 读取，
+# 用于窗口标题栏与任务栏图标（asar 内不打包 resources，避免图标丢失回退到 Electron 默认图标）
+extraResources:
+  - from: resources/icon.ico
+    to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
+  - from: resources/icon-transparent.png
+    to: icon-transparent.png
+
 asar: true
 asarUnpack:
   - "**/*.node"
@@ -20,21 +30,36 @@ win:
   target:
     - target: nsis
       arch: [x64]
-    - target: zip
+    - target: portable
       arch: [x64]
+
+fileAssociations:
+  - ext: md
+    name: Flux Markdown Document
+    description: Markdown document opened by Flux
+    icon: icon.png
+  - ext: markdown
+    name: Flux Markdown Document
+    description: Markdown document opened by Flux
+    icon: icon.png
+  - ext: txt
+    name: Flux Text Document
+    description: Text document opened by Flux
+    icon: icon.png
+  - ext: log
+    name: Flux Log File
+    description: Log file opened by Flux
+    icon: icon.png
 
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  include: resources/installer.nsh
   createDesktopShortcut: true
-  artifactName: "${productName} Setup.${ext}"
+  createStartMenuShortcut: true
+  shortcutName: Flux
+  deleteAppDataOnUninstall: false
+  artifactName: "${productName}-setup-${arch}.${ext}"
 
-mac:
-  target:
-    - target: dmg
-      arch: [x64, arm64]
-
-linux:
-  target:
-    - target: AppImage
-      arch: [x64]
+portable:
+  artifactName: "${productName}-portable-${arch}.${ext}"

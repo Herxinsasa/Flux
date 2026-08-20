@@ -10,17 +10,15 @@ AI 驱动的沉浸式文本工作站。编辑、分析、阅读文本，配合 A
 
 <img src="resources/icon.png" alt="Flux" width="96" />
 
-### 暗色主题
+### 主界面
 
-<img src="resources/screenshots/app-black.png" alt="Flux 暗色主题" width="100%" />
-
-### 亮色主题
-<img src="resources/screenshots/app-white.png" alt="Flux 亮色主题" width="100%" />
+![Flux 2.0 主界面](resources/screenshots/app-white.png)
 
 ## 功能特性
 
 ### 文件管理
 - **打开文件/文件夹** — 支持单文件编辑和文件夹工作区模式
+- **双击文档打开** — 通过「打开方式」选择 Flux 打开文档时，自动加载所在文件夹为工作区并打开文档
 - **文件树浏览** — 左侧面板浏览工作区文件结构，快速切换
 - **新建文件** — 默认文件名为 `untitled.md`（与首项 Markdown 类型一致）
 - **覆盖新建** — 目标文件已存在且确认替换时，会覆盖为新建空文件内容
@@ -30,13 +28,23 @@ AI 驱动的沉浸式文本工作站。编辑、分析、阅读文本，配合 A
 
 ### 编辑器
 - **多语言语法高亮** — 支持 JavaScript、TypeScript、Python、C/C++、CSS、HTML、JSON、Markdown、SQL、XML 等
-- **Markdown 编辑** — 支持源码编辑、实时预览、WYSIWYG 富文本三种模式
-- **大纲联动** — Markdown 文件自动生成标题大纲，点击跳转对应章节
-- **日志查看器** — 专用日志高亮和行着色，快速定位关键信息
-- **搜索面板** — 编辑器内查找/替换
+- **Markdown 编辑** — 所见即所得（WYSIWYG）+ 源码编辑双模式，实时预览
+- **表格工具条** — 光标置于表格内浮现左上角工具条：行列增减、列左/中/右对齐
+- **mermaid 图表** — 编辑界面直接渲染 ```mermaid / ```flowchart 图，点击图展开源码编辑
+- **frontmatter 元数据卡** — YAML frontmatter 渲染为 Typora 式淡化卡片（编辑/预览一致）
+- **大纲联动** — Markdown 自动生成标题大纲（跳过 frontmatter 与代码块），点击跳转对应章节
+- **日志查看器** — 专用日志高亮和行着色，大日志索引按需读行
+- **搜索面板** — 源码/编辑界面均支持 Ctrl+F 查找（大小写/全词/正则、匹配计数）
 - **段落菜单** — 快速插入标题（H1-H5）、有序/无序列表、引用块、代码块、表格、水平分割线
 - **JSON 上下文菜单** — JSON 文件右键快捷操作
 - **可扩展编辑器模式** — 注册机制支持自定义文件类型处理器
+
+### 批注与评审
+- **选中批注** — Markdown 选中文本右键「批注」，锚定文本高亮（源码/编辑界面一致）
+- **批注管理** — 编辑、删除、状态流转（未解决/已解决）、回复（修改人/评审人身份）
+- **双击跳转** — 双击批注条目跳转到原文位置（当前编辑面内定位）
+- **失效重定位** — 原文修改导致位置失效时，用当前选区重新锚定
+- **批注导出** — 导出 Markdown / HTML 评审报告（脚注式/文末清单、全部/未解决）
 
 ### AI 对话
 - **多轮对话** — 右侧面板与 AI Agent 持续交互
@@ -112,13 +120,14 @@ AI 驱动的沉浸式文本工作站。编辑、分析、阅读文本，配合 A
 |------|------|
 | **运行时** | Electron 41 |
 | **UI 框架** | React 19, Tailwind CSS 4 |
-| **编辑器** | CodeMirror 6 (`@uiw/react-codemirror`), MDXEditor |
+| **编辑器** | CodeMirror 6 (`@uiw/react-codemirror`), Milkdown 7 (ProseMirror) |
+| **Markdown 渲染** | markdown-it, highlight.js, mermaid |
 | **AI SDK** | Anthropic SDK, OpenAI SDK |
+| **搜索** | @codemirror/search, prosemirror-search |
 | **状态管理** | Zustand |
 | **构建工具** | electron-vite, TypeScript |
 | **测试** | Vitest, Testing Library |
 | **图标** | Lucide React |
-| **Markdown 渲染** | markdown-it, highlight.js |
 
 ## 快速开始
 

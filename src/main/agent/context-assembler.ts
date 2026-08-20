@@ -1,5 +1,5 @@
 import { getFileInfo } from '../services/file-service'
-import { getLogIndex } from '../services/log-index-service'
+import { getCachedLogIndex, scheduleLogIndex } from '../services/log-index-service'
 import {
   assembleContext,
   LARGE_FILE_NO_INJECT_BYTES,
@@ -56,8 +56,16 @@ function enrichOpenFiles(openFiles: OpenFileContext[]): OpenFileContext[] {
     const isLog = enriched.path.toLowerCase().endsWith('.log')
     if (isLog && size > LARGE_FILE_NO_INJECT_BYTES) {
       try {
-        const idx = getLogIndex(enriched.path)
-        enriched = { ...enriched, indexSummary: idx.summaryText }
+        const idx = getCachedLogIndex(enriched.path)
+        if (idx) {
+          enriched = { ...enriched, indexSummary: idx.summaryText }
+        } else {
+          scheduleLogIndex(enriched.path)
+          enriched = {
+            ...enriched,
+            indexSummary: 'Log index is being prepared. Use search_content or read_file for targeted details.',
+          }
+        }
       } catch (err) {
         log.warn('context-assembler: log index failed', { path: f.path, err })
       }

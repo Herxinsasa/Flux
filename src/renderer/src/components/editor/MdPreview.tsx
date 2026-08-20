@@ -1,8 +1,5 @@
-import { useMemo, useRef, useLayoutEffect, useCallback } from 'react'
-import MarkdownIt from 'markdown-it'
-import hljs from 'highlight.js'
-import { registerMarkdownHeadingIds } from '../../utils/markdownHeadingIds'
-import { registerMarkdownLocalAssets } from '../../utils/markdownLocalAssets'
+import { useMemo, useRef, useLayoutEffect, useCallback, useEffect } from 'react'
+import { renderMarkdownForPreview, MERMAID_CLASS } from '../../utils/markdownPreviewRenderer'
 import {
   isExternalUrl,
   isMarkdownFilePath,
@@ -10,33 +7,7 @@ import {
   hrefPathPart,
 } from '../../../../shared/markdown-path'
 import { useFileStore } from '../../stores/fileStore'
-
-const md = new MarkdownIt({ html: true, linkify: true, typographer: true, breaks: true })
-md.linkify.set({
-  fuzzyLink: false,
-})
-const defaultValidateLink = md.validateLink.bind(md)
-md.validateLink = (url: string) => {
-  if (/^(file|flux-local):\/\//i.test(url)) return true
-  return defaultValidateLink(url)
-}
-const escapeHtml = md.utils.escapeHtml.bind(md.utils)
-
-md.set({
-  highlight: (str: string, lang: string) => {
-    if (lang && hljs.getLanguage(lang)) {
-      try {
-        return `<pre><code class="hljs language-${lang}">${hljs.highlight(str, { language: lang, ignoreIllegals: true }).value}</code></pre>`
-      } catch {
-        // fall through to escape
-      }
-    }
-    return `<pre><code class="hljs">${escapeHtml(str)}</code></pre>`
-  },
-})
-
-registerMarkdownHeadingIds(md)
-registerMarkdownLocalAssets(md)
+import { useSettingsStore } from '../../stores/settingsStore'
 
 interface MdPreviewProps {
   content: string
@@ -102,17 +73,47 @@ export function MdPreview({
   scrollable = true,
 }: MdPreviewProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
+  const theme = useSettingsStore((s) => s.theme)
 
   const html = useMemo(() => {
     if (!content) return ''
-    const normalized = normalizeWindowsAbsoluteImageLinks(content)
-    const env: Record<string, unknown> = {}
-    if (baseFilePath) {
-      env.baseFilePath = baseFilePath
-      env.toLocalMediaUrl = (p: string) => window.electronAPI.media.toLocalUrl(p)
-    }
-    return md.render(normalized, env)
+    return renderMarkdownForPreview(normalizeWindowsAbsoluteImageLinks(content), baseFilePath)
   }, [content, baseFilePath])
+
+  // 异步渲染 mermaid 图表：markdown-it 只输出占位容器（code 内保留源码），
+  // 这里用 mermaid 生成 SVG 替换 code 内容；源码始终保留在 DOM，主题切换时可重渲染
+  useEffect(() => {
+    if (!html.includes(MERMAID_CLASS) || !wrapRef.current) return
+    let cancelled = false
+    void (async () => {
+      const { default: mermaid } = await import('mermaid')
+      const blocks = wrapRef.current!.querySelectorAll<HTMLPreElement>(`.${MERMAID_CLASS}`)
+      for (let index = 0; index < blocks.length; index++) {
+        if (cancelled) break
+        const block = blocks[index]
+        const code = block.querySelector('code')
+        // 优先读 data-mermaid-source（SVG 替换后 code 文本不再是源码）
+        const source = block.dataset.mermaidSource ?? code?.textContent ?? ''
+        if (!source.trim()) continue
+        try {
+          // strict 模式会转义标签内 HTML/事件处理器，避免 mermaid 输出绕过 DOMPurify 造成 XSS
+          mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'default', securityLevel: 'strict' })
+          const { svg } = await mermaid.render(`flux-mermaid-${block.dataset.mermaidId ?? index}`, source)
+          if (cancelled) return
+          // 仅替换 code 内部内容，保留 code 元素以便主题切换时读取源码重渲染
+          code.innerHTML = svg
+          code.setAttribute('data-rendered', 'true')
+        } catch {
+          // 渲染失败保留源码块，用户可查看原始定义
+          code?.removeAttribute('class')
+          code?.removeAttribute('data-rendered')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [html, theme])
 
   useLayoutEffect(() => {
     if (!scrollToHeadingId || !wrapRef.current) return
@@ -123,7 +124,7 @@ export function MdPreview({
   const handlePreviewClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       const anchor = (event.target as HTMLElement | null)?.closest('a')
-      if (!anchor || !baseFilePath) return
+      if (!anchor) return
 
       const href = anchor.getAttribute('href')?.trim()
       if (!href) return
@@ -142,6 +143,7 @@ export function MdPreview({
         return
       }
 
+      if (!baseFilePath) return
       const resolved = resolvePathFromBase(baseFilePath, href)
       if (resolved && isMarkdownFilePath(hrefPathPart(href))) {
         event.preventDefault()
@@ -160,7 +162,7 @@ export function MdPreview({
       ref={wrapRef}
       className="markdown-preview-container"
       style={scrollable ? { height: '100%', overflow: 'hidden' } : { height: 'auto', overflow: 'visible' }}
-      onClick={baseFilePath ? handlePreviewClick : undefined}
+      onClick={handlePreviewClick}
     >
       {content ? (
         <div

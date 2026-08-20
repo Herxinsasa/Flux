@@ -45,8 +45,10 @@ export const READ_FILE_MAX_CHARS = 80_000
 export const READ_FILE_MAX_LINES = 5_000
 export const SEARCH_CONTENT_MAX_LINES = 2_000
 
-/** Editor RAM guard: files larger than this load a sample only (P0.6) */
-export const EDITOR_LARGE_FILE_BYTES = 2 * 1024 * 1024
+/** CodeMirror can keep medium text files virtualized; beyond this we retain the sampled safety path. */
+export const EDITOR_LARGE_FILE_BYTES = 16 * 1024 * 1024
+/** Rich Markdown parsing is substantially heavier than source editing. */
+export const EDITOR_RICH_MARKDOWN_MAX_CHARS = 1_500_000
 export const EDITOR_SAMPLE_LINES = 2_000
 
 /** P2: log index summary injected into AI context for large .log files */

@@ -119,6 +119,8 @@ export function LogViewer() {
   const logTotalLines = useEditorStore((s) => s.logTotalLines)
   const currentFile = useFileStore((s) => s.currentFile)
   const isLoading = useFileStore((s) => s.isLoading)
+  const logIndexStatus = useFileStore((s) => s.logIndexStatus)
+  const logIndexError = useFileStore((s) => s.logIndexError)
   const currentFileName = useFileStore((s) => {
     const f = s.files.find((x) => x.path === s.currentFile)
     return f?.name ?? (s.currentFile ? s.currentFile.split(/[/\\]/).pop() : null)
@@ -147,6 +149,39 @@ export function LogViewer() {
       </div>
     </div>
   ) : null
+
+  if (currentFile && logIndexStatus === 'indexing') {
+    return (
+      <div className="flex flex-col h-full min-h-0 overflow-hidden bg-[var(--bg-viewer)]">
+        {chrome}
+        <div className="log-viewer-container flex-1 min-h-0">
+          <div className="log-viewer-empty">正在建立日志索引…</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (currentFile && logIndexStatus === 'cancelled') {
+    return (
+      <div className="flex flex-col h-full min-h-0 overflow-hidden bg-[var(--bg-viewer)]">
+        {chrome}
+        <div className="log-viewer-container flex-1 min-h-0">
+          <div className="log-viewer-empty">日志索引已取消</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (currentFile && logIndexStatus === 'error') {
+    return (
+      <div className="flex flex-col h-full min-h-0 overflow-hidden bg-[var(--bg-viewer)]">
+        {chrome}
+        <div className="log-viewer-container flex-1 min-h-0">
+          <div className="log-viewer-empty">{logIndexError ?? '日志索引失败'}</div>
+        </div>
+      </div>
+    )
+  }
 
   if (isIndexedView && currentFile) {
     return (

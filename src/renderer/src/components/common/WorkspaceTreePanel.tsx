@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { WorkspaceFileEntry } from '../../../../shared/types'
-import { buildWorkspaceTree, type WorkspaceFsNode } from '../../utils/workspaceTree'
+import { buildWorkspaceTree, mergeWorkspaceTree, type WorkspaceFsNode } from '../../utils/workspaceTree'
 
 const EMOJI_MAP: Record<string, string> = {
   '.json': '📋',
@@ -23,6 +23,9 @@ function fileEmoji(ext: string): string {
 interface WorkspaceTreePanelProps {
   workspaceRoot: string | null
   workspaceFiles: WorkspaceFileEntry[]
+  scanVersion: number
+  scanStatus: 'idle' | 'scanning' | 'complete' | 'cancelled' | 'error'
+  scanError: string | null
   currentFile: string | null
   onOpenFile: (path: string) => void
 }
@@ -110,18 +113,30 @@ function WorkspaceNodes({
 export function WorkspaceTreePanel({
   workspaceRoot,
   workspaceFiles,
+  scanVersion,
+  scanStatus,
+  scanError,
   currentFile,
   onOpenFile,
 }: WorkspaceTreePanelProps) {
-  const tree = useMemo(() => buildWorkspaceTree(workspaceFiles), [workspaceFiles])
+  const [tree, setTree] = useState<WorkspaceFsNode[]>([])
+  const seenPaths = useRef(new Set<string>())
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
 
   /** 切换工作区时清空展开状态；默认全部折叠，避免一次展开过多目录 */
   useEffect(() => {
-    if (!workspaceRoot) {
-      setExpanded(new Set())
-    }
-  }, [workspaceRoot])
+    seenPaths.current = new Set(workspaceFiles.map((file) => file.path))
+    setTree(workspaceRoot ? buildWorkspaceTree(workspaceFiles) : [])
+    setExpanded((current) => workspaceRoot ? current : new Set())
+  }, [workspaceRoot, scanVersion])
+
+  useEffect(() => {
+    if (!workspaceRoot) return
+    const additions = workspaceFiles.filter((file) => !seenPaths.current.has(file.path))
+    if (additions.length === 0) return
+    additions.forEach((file) => seenPaths.current.add(file.path))
+    setTree((current) => mergeWorkspaceTree(current, additions))
+  }, [workspaceFiles, workspaceRoot])
 
   const toggleDir = useCallback((pathKey: string) => {
     setExpanded((prev) => {
@@ -136,18 +151,25 @@ export function WorkspaceTreePanel({
     return <p className="text-app-xs text-[var(--text-hint)] px-1">未打开文件夹</p>
   }
 
+  if (scanStatus === 'error') {
+    return <p className="text-app-xs text-[var(--text-hint)] px-1">{scanError ?? '工作区扫描失败'}</p>
+  }
+
   if (tree.length === 0) {
-    return <p className="text-app-xs text-[var(--text-hint)] px-1">该文件夹下没有可显示的文件</p>
+    return <p className="text-app-xs text-[var(--text-hint)] px-1">{scanStatus === 'scanning' ? '正在扫描文件夹…' : '该文件夹下没有可显示的文件'}</p>
   }
 
   return (
-    <WorkspaceNodes
-      nodes={tree}
-      depth={0}
-      expanded={expanded}
-      toggleDir={toggleDir}
-      currentFile={currentFile}
-      onOpenFile={onOpenFile}
-    />
+    <>
+      <WorkspaceNodes
+        nodes={tree}
+        depth={0}
+        expanded={expanded}
+        toggleDir={toggleDir}
+        currentFile={currentFile}
+        onOpenFile={onOpenFile}
+      />
+      {scanStatus === 'scanning' && <p className="text-app-xs text-[var(--text-hint)] px-1 pt-1">正在扫描…</p>}
+    </>
   )
 }

@@ -1,16 +1,60 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, dialog, BrowserWindow, type OpenDialogOptions } from 'electron'
 import { IPC_CHANNELS } from '../../shared/ipc-channels'
-import { IpcResponse, FileInfo, type WorkspaceOpenData, type WorkspaceFileEntry } from '../../shared/types'
-import { getFileInfo, readFile, detectEncoding } from '../services/file-service'
+import {
+  IpcResponse,
+  FileInfo,
+  type SaveTextRequest,
+  type SaveTextResult,
+  type TextDocumentSnapshot,
+  type WorkspaceOpenData,
+  type WorkspaceFileEntry,
+} from '../../shared/types'
+import {
+  FluxFileError,
+  getFileInfo,
+  readFile,
+  readText,
+  saveText,
+  writeTextLegacy,
+  detectEncoding,
+} from '../services/file-service'
 import { streamReadFile } from '../services/stream-reader'
-import { listWorkspaceFiles } from '../services/workspace-service'
+import { cancelWorkspaceScan, startWorkspaceScan } from '../services/workspace-service'
 import { ensureWorkspaceConfig } from '../services/workspace-config-service'
 import fs from 'fs'
 import path from 'path'
 
+export function isValidFilePath(filePath: unknown): filePath is string {
+  return typeof filePath === 'string' && filePath.length > 0
+}
+
+export function isOptionalWorkspaceRoot(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
 export function registerFileHandlers(): void {
-  const { FILE_OPEN, FILE_CREATE, FILE_OPEN_FOLDER, FILE_LIST_WORKSPACE_FILES, FILE_READ, FILE_READ_STREAM, FILE_INFO, FILE_WRITE } =
-    IPC_CHANNELS
+  const {
+    FILE_OPEN,
+    FILE_CREATE,
+    FILE_OPEN_FOLDER,
+    FILE_LIST_WORKSPACE_FILES,
+    FILE_SCAN_WORKSPACE,
+    FILE_CANCEL_WORKSPACE_SCAN,
+    FILE_WORKSPACE_SCAN_EVENT,
+    FILE_READ,
+    FILE_READ_TEXT,
+    FILE_READ_STREAM,
+    FILE_INFO,
+    FILE_WRITE,
+    FILE_SAVE_TEXT,
+  } = IPC_CHANNELS
+
+  const toErrorResponse = (error: unknown): IpcResponse => {
+    if (error instanceof FluxFileError) {
+      return { success: false, error: error.message, code: error.code }
+    }
+    return { success: false, error: String(error) }
+  }
 
   // ── FILE_OPEN ── open native file dialog, return selected path ──
   ipcMain.handle(FILE_OPEN, async (): Promise<IpcResponse<string | null>> => {
@@ -80,22 +124,31 @@ export function registerFileHandlers(): void {
   // ── FILE_OPEN_FOLDER ── 选择文件夹并列出可编辑文件 ──
   ipcMain.handle(
     FILE_OPEN_FOLDER,
-    async (): Promise<IpcResponse<WorkspaceOpenData | null> & { cancelled?: boolean }> => {
+    async (event, requestedRoot?: string): Promise<IpcResponse<WorkspaceOpenData | null> & { cancelled?: boolean }> => {
     try {
-      const window = BrowserWindow.getFocusedWindow()
-      const result = await dialog.showOpenDialog(window!, {
+      if (isOptionalWorkspaceRoot(requestedRoot)) {
+        const root = path.resolve(requestedRoot)
+        if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+          return { success: false, error: 'Invalid workspace root' }
+        }
+        return { success: true, data: { root, files: [], workspaceConfig: ensureWorkspaceConfig(root) } }
+      }
+      const owner = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
+      const options: OpenDialogOptions = {
         title: '打开文件夹',
         properties: ['openDirectory'],
-      })
+      }
+      const result = owner
+        ? await dialog.showOpenDialog(owner, options)
+        : await dialog.showOpenDialog(options)
 
       if (result.canceled || result.filePaths.length === 0) {
         return { success: true, cancelled: true, data: null }
       }
 
       const root = result.filePaths[0]
-      const files = listWorkspaceFiles(root)
       const workspaceConfig = ensureWorkspaceConfig(root)
-      return { success: true, data: { root, files, workspaceConfig } }
+      return { success: true, data: { root, files: [], workspaceConfig } }
     } catch (err) {
       return { success: false, error: String(err) }
     }
@@ -109,7 +162,16 @@ export function registerFileHandlers(): void {
         if (!root || typeof root !== 'string') {
           return { success: false, error: 'Invalid workspace root' }
         }
-        const files = listWorkspaceFiles(root)
+        const files: WorkspaceFileEntry[] = []
+        await new Promise<void>((resolve, reject) => {
+          startWorkspaceScan(root, (event) => {
+            if (event.status === 'batch' && event.entries) files.push(...event.entries)
+            if (event.status === 'complete') resolve()
+            if (event.status === 'cancelled') reject(new Error('Workspace scan cancelled'))
+            if (event.status === 'error') reject(new Error(event.error ?? 'Workspace scan failed'))
+          })
+        })
+        files.sort((a, b) => a.relativePath.localeCompare(b.relativePath, undefined, { sensitivity: 'base' }))
         return { success: true, data: files }
       } catch (err) {
         return { success: false, error: String(err) }
@@ -127,6 +189,17 @@ export function registerFileHandlers(): void {
       return { success: true, data: result }
     } catch (err) {
       return { success: false, error: String(err) }
+    }
+  })
+
+  ipcMain.handle(FILE_READ_TEXT, async (_event, filePath: string): Promise<IpcResponse<TextDocumentSnapshot>> => {
+    try {
+      if (!isValidFilePath(filePath)) {
+        return { success: false, error: 'Invalid file path', code: 'INVALID_DATA' }
+      }
+      return { success: true, data: readText(filePath) }
+    } catch (error) {
+      return toErrorResponse(error)
     }
   })
 
@@ -195,6 +268,43 @@ export function registerFileHandlers(): void {
     }
   })
 
+  ipcMain.handle(
+    FILE_SAVE_TEXT,
+    async (_event, request: SaveTextRequest): Promise<IpcResponse<SaveTextResult>> => {
+      try {
+        if (!request || typeof request !== 'object' || typeof request.filePath !== 'string' || typeof request.content !== 'string') {
+          return { success: false, error: 'Invalid save request', code: 'INVALID_DATA' }
+        }
+        return { success: true, data: await saveText(request) }
+      } catch (error) {
+        return toErrorResponse(error)
+      }
+    },
+  )
+
+  ipcMain.handle(
+    FILE_SCAN_WORKSPACE,
+    async (event, root: string): Promise<IpcResponse<{ taskId: string }>> => {
+      if (!isOptionalWorkspaceRoot(root) || !path.isAbsolute(root)) {
+        return { success: false, error: 'Invalid workspace root', code: 'INVALID_DATA' }
+      }
+      const task = startWorkspaceScan(root, (payload) => {
+        event.sender.send(FILE_WORKSPACE_SCAN_EVENT, payload)
+      })
+      return { success: true, data: task }
+    },
+  )
+
+  ipcMain.handle(
+    FILE_CANCEL_WORKSPACE_SCAN,
+    async (_event, taskId: string): Promise<IpcResponse<{ cancelled: boolean }>> => {
+      if (!taskId || typeof taskId !== 'string') {
+        return { success: false, error: 'Invalid workspace scan task', code: 'INVALID_DATA' }
+      }
+      return { success: true, data: { cancelled: cancelWorkspaceScan(taskId) } }
+    },
+  )
+
   // ── FILE_WRITE ── 保存编辑器当前文件（用户 Ctrl+S；不限于工作区内路径） ──
   ipcMain.handle(
     FILE_WRITE,
@@ -206,12 +316,7 @@ export function registerFileHandlers(): void {
         if (typeof content !== 'string') {
           return { success: false, error: 'Invalid content' }
         }
-        const resolved = path.resolve(filePath)
-        const dir = path.dirname(resolved)
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true })
-        }
-        fs.writeFileSync(resolved, content, 'utf-8')
+        await writeTextLegacy(filePath, content)
         return { success: true }
       } catch (err) {
         return { success: false, error: String(err) }

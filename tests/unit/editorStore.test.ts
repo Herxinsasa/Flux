@@ -54,10 +54,13 @@ describe('useEditorStore', () => {
       isDirty: false,
       menuUiTick: 0,
       menuAction: null,
-      pendingInsertTick: 0,
-      pendingInsert: null,
+      markdownCommandTick: 0,
+      markdownCommand: null,
       jumpOutlineTick: 0,
       jumpOutlineLine: 0,
+      markdownEditSurface: 'wysiwyg',
+      activeDocumentPath: null,
+      documentSessions: {},
     })
   })
 
@@ -115,6 +118,55 @@ describe('useEditorStore', () => {
     })
   })
 
+  describe('setDocumentSnapshot', () => {
+    it('opens a normal Markdown document in the live WYSIWYG surface', () => {
+      useEditorStore.getState().setDocumentSnapshot('C:\\docs\\readme.md', {
+        filePath: 'C:\\docs\\readme.md',
+        content: '# Flux',
+        encoding: 'utf8',
+        lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 6, contentHash: 'hash' },
+        sampled: false,
+      })
+
+      const state = useEditorStore.getState()
+      expect(state.mode).toBe('markdown')
+      expect(state.markdownEditSurface).toBe('wysiwyg')
+      expect(state.content).toBe('# Flux')
+      expect(state.isDirty).toBe(false)
+    })
+  })
+
+  describe('Markdown edit surface', () => {
+    it('toggles only between live editing and source', () => {
+      useEditorStore.getState().toggleMarkdownEditSurface()
+      expect(useEditorStore.getState().markdownEditSurface).toBe('source')
+
+      useEditorStore.getState().toggleMarkdownEditSurface()
+      expect(useEditorStore.getState().markdownEditSurface).toBe('wysiwyg')
+    })
+
+    it('restores a legacy split session in source mode', () => {
+      useEditorStore.setState({
+        documentSessions: {
+          'c:/docs/legacy.md': {
+            filePath: 'C:\\docs\\legacy.md',
+            draft: '# Legacy',
+            dirty: false,
+            mode: 'markdown-split',
+            scrollTop: 0,
+            snapshot: null,
+            sampled: false,
+            lastActivatedAt: 1,
+          },
+        },
+      })
+
+      expect(useEditorStore.getState().activateDocument('C:\\docs\\legacy.md')).toBe(true)
+      expect(useEditorStore.getState().markdownEditSurface).toBe('source')
+    })
+  })
+
   describe('markClean', () => {
     it('sets isDirty=false', () => {
       useEditorStore.getState().setContent('dirty content')
@@ -122,6 +174,27 @@ describe('useEditorStore', () => {
 
       useEditorStore.getState().markClean()
       expect(useEditorStore.getState().isDirty).toBe(false)
+    })
+  })
+
+  describe('discardDocumentChanges', () => {
+    it('restores the disk snapshot and hydrates the active editor', () => {
+      useEditorStore.getState().setDocumentSnapshot('C:\\docs\\note.md', {
+        filePath: 'C:\\docs\\note.md',
+        content: '# saved',
+        encoding: 'utf8',
+        lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 7, contentHash: 'saved' },
+        sampled: false,
+      })
+      useEditorStore.getState().setContent('# changed')
+      const epoch = useEditorStore.getState().editorHydrationEpoch
+
+      useEditorStore.getState().discardDocumentChanges('c:/DOCS/note.md')
+
+      expect(useEditorStore.getState().content).toBe('# saved')
+      expect(useEditorStore.getState().isDirty).toBe(false)
+      expect(useEditorStore.getState().editorHydrationEpoch).toBe(epoch + 1)
     })
   })
 

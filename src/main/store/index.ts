@@ -3,35 +3,13 @@ import path from 'path'
 import Store from 'electron-store'
 import log from '../logger'
 import { getConfigDir } from '../paths'
-
-interface ProviderConfig {
-  id: string
-  name: string
-  type: 'anthropic' | 'anthropic_compat' | 'openai_compat'
-  apiKey: string
-  baseUrl?: string
-  model: string
-}
-
-interface StoreSchema {
-  theme: 'dark' | 'light'
-  providers: ProviderConfig[]
-  activeProvider: string | null
-  configured: boolean
-  windowBounds: { width: number; height: number }
-}
+import { migrateStoreSchema, STORE_DEFAULTS, type StoreSchema } from './schema'
 
 const STORE_OPTIONS = {
   cwd: getConfigDir(),
   name: 'flux-settings',
   /** 明文 JSON，便于直接打开 flux-settings.json 查看（密钥后期再考虑加密方案）。 */
-  defaults: {
-    theme: 'dark' as const,
-    providers: [] as ProviderConfig[],
-    activeProvider: null,
-    configured: false,
-    windowBounds: { width: 1440, height: 900 },
-  },
+  defaults: STORE_DEFAULTS,
 }
 
 function createSettingsStore(): Store<StoreSchema> {
@@ -55,6 +33,7 @@ function createSettingsStore(): Store<StoreSchema> {
 }
 
 const store = createSettingsStore()
+migrateStoreSchema(store)
 
 log.info(`[store] settings file: ${store.path}`)
 

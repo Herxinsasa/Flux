@@ -268,6 +268,8 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
   const pinFromMessageContent = useSessionContextStore((s) => s.pinFromMessageContent)
   const isFactPinned = useSessionContextStore((s) => s.isFactPinned)
   const persistWorkspaceSession = useSessionContextStore((s) => s.persistWorkspaceSession)
+  const appendMessageEvent = useSessionContextStore((s) => s.appendMessageEvent)
+  const compactAndPersist = useSessionContextStore((s) => s.compactAndPersist)
   const pinnedFacts = useSessionContextStore((s) => s.pinnedFacts)
   const [progressHint, setProgressHint] = useState('')
   const [workingHintIndex, setWorkingHintIndex] = useState(0)
@@ -277,6 +279,10 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
   const [contextToast, setContextToast] = useState<FluxToastState | null>(null)
   const [isAutoCompressing, setIsAutoCompressing] = useState(false)
   const [draftStats, setDraftStats] = useState({ textChars: 0, attachmentChars: 0, skillCount: 0 })
+
+  useEffect(() => {
+    void useSessionContextStore.getState().scheduleCleanup()
+  }, [])
 
   // Editor-chat bridge for write_file preview actions
   const { previewChange, applyChange, rejectChange } = useEditorChatBridge()
@@ -578,6 +584,11 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
                 })
               }
             }
+            const completedMessage = snapshot.find((message) => message.id === completedMsgId)
+            const workspaceRoot = useFileStore.getState().workspaceRoot
+            if (workspaceRoot && completedMessage?.content.trim()) {
+              void appendMessageEvent(workspaceRoot, completedMessage)
+            }
           }
           setAgentStatus('idle')
           setProgressHint('')
@@ -646,6 +657,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       scheduleBufferedFlush,
       setAgentStatus,
       summarizeToolOutputs,
+      appendMessageEvent,
     ],
   )
 
@@ -738,7 +750,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         const root = useFileStore.getState().workspaceRoot
         let ok = true
         if (root) {
-          ok = await persistWorkspaceSession(root)
+          ok = await persistWorkspaceSession(root, true)
         }
         setContextToast({
           message: ok
@@ -972,8 +984,13 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
 
       const shouldStickBottomAfterSend = isAtBottomRef.current
 
+      if (workspaceRoot) {
+        await useSessionContextStore.getState().ensureActiveSession(workspaceRoot)
+      }
+
       // Add user message to store（气泡与发给模型的正文均为去掉 /技能名 标记后的文案）
-      sendMessage(llmBody, contextFootnote ? { contextFootnote } : undefined)
+      const userMessage = sendMessage(llmBody, contextFootnote ? { contextFootnote } : undefined)
+      if (workspaceRoot) void appendMessageEvent(workspaceRoot, userMessage)
 
       if (shouldStickBottomAfterSend) {
         requestAnimationFrame(() => {
@@ -1041,6 +1058,21 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
     },
     [pinFromMessageContent, persistWorkspaceSession],
   )
+
+  const handleCompact = useCallback(async (focus?: string) => {
+    if (isAutoCompressing) return
+    setIsAutoCompressing(true)
+    const root = useFileStore.getState().workspaceRoot
+    if (root && !useSessionContextStore.getState().activeSessionId) await persistWorkspaceSession(root)
+    const ok = root
+      ? await compactAndPersist(root, useChatStore.getState().messages, focus)
+      : false
+    setIsAutoCompressing(false)
+    setContextToast({
+      message: ok ? `已压缩当前会话${focus ? `：${focus}` : ''}` : '压缩结果未能持久化，已保留当前热历史',
+      variant: ok ? 'success' : 'warn',
+    })
+  }, [compactAndPersist, isAutoCompressing, persistWorkspaceSession])
 
   const contextBarHistory = useMemo(
     () =>
@@ -1402,6 +1434,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
         mentionFiles={mentionFiles}
         quoteSourceLabel={previewPath ? previewPath.split(/[/\\]/).pop() : undefined}
         slashSkills={slashSkillMetas}
+        onCompact={handleCompact}
       />
       <FluxToast toast={contextToast} onDismiss={() => setContextToast(null)} />
     </aside>

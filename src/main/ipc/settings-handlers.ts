@@ -1,6 +1,8 @@
 import { app, ipcMain } from 'electron'
 import { IPC_CHANNELS } from '../../shared/ipc-channels'
+import { parseProviderModelPage } from '../../shared/provider-model-list'
 import store from '../store/index'
+import { normalizeReadingPreferences, type ReadingPreferences } from '../store/schema'
 import log from '../logger'
 import { syncNativeChromeTheme } from '../native-theme'
 import {
@@ -25,11 +27,47 @@ interface SettingsPayload {
   providers?: ProviderConfig[]
   activeProvider?: string | null
   configured?: boolean
+  onboardingCompleted?: boolean
+  readingPreferences?: Partial<ReadingPreferences>
+  providerModelOptions?: Record<string, string[]>
+  sessionPersistenceEnabled?: boolean
+  sessionRetentionDays?: number
+  sessionMaxStorageMb?: number
   /** 若设置，保存后将供应商摘要同步到该工作区下的 config/config.json（不含 API Key） */
   workspaceRoot?: string | null
 }
 
 type TestConnectionPayload = ProviderConfig
+type ModelProviderKey = 'anthropic' | 'openai' | 'deepseek' | 'kimi' | 'glm' | 'qwen'
+
+interface ListModelsPayload {
+  presetKey: ModelProviderKey
+  apiKey: string
+}
+
+const MODEL_PROVIDER_ENDPOINTS: Record<ModelProviderKey, { url: string; protocol: 'anthropic' | 'openai' }> = {
+  anthropic: { url: 'https://api.anthropic.com/v1/models', protocol: 'anthropic' },
+  openai: { url: 'https://api.openai.com/v1/models', protocol: 'openai' },
+  deepseek: { url: 'https://api.deepseek.com/v1/models', protocol: 'openai' },
+  kimi: { url: 'https://api.moonshot.cn/v1/models', protocol: 'openai' },
+  glm: { url: 'https://open.bigmodel.cn/api/paas/v4/models', protocol: 'openai' },
+  qwen: { url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/models', protocol: 'openai' },
+}
+
+function normalizeProviderModelOptions(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== 'object') return {}
+  const output: Record<string, string[]> = {}
+  for (const [key, models] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^[a-z0-9_-]{1,40}$/i.test(key) || !Array.isArray(models)) continue
+    const unique = [...new Set(models
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 1000))]
+    if (unique.length > 0) output[key] = unique
+  }
+  return output
+}
 
 /** 历史 UI 脱敏 / 误写入会产生含 `***` 的短占位串，不得持久化也不得直接拿去请求 API */
 function looksLikeMaskedPlaceholder(key: string): boolean {
@@ -126,7 +164,7 @@ async function testAnthropicConnection(config: ProviderConfig): Promise<{ succes
         model: config.model,
         baseUrl,
       })
-      return { success: false, error: '连接超时 (15s) — 请检查 Base URL 是否正确' }
+      return { success: false, error: '连接超时 (15s) — 请检查请求地址是否正确' }
     }
     const message = err instanceof Error ? err.message : 'Unknown error'
     log.error('Anthropic connectivity test network error', err)
@@ -188,7 +226,7 @@ async function testOpenAICompatConnection(config: ProviderConfig): Promise<{ suc
         model: config.model,
         baseUrl,
       })
-      return { success: false, error: '连接超时 (15s) — 请检查 Base URL 是否正确' }
+      return { success: false, error: '连接超时 (15s) — 请检查请求地址是否正确' }
     }
     const message = err instanceof Error ? err.message : 'Unknown error'
     log.error('OpenAI-compatible connectivity test network error', err)
@@ -206,7 +244,7 @@ async function runProviderConnectivityTest(
       return await testAnthropicConnection(config)
     case 'anthropic_compat':
       if (!config.baseUrl || config.baseUrl.trim() === '') {
-        return { success: false, error: '请先设置 Base URL' }
+        return { success: false, error: '请先设置请求地址' }
       }
       return await testAnthropicConnection(config)
     case 'openai_compat':
@@ -216,8 +254,67 @@ async function runProviderConnectivityTest(
   }
 }
 
+async function readResponseTextLimited(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) {
+    const buffer = new Uint8Array(await response.arrayBuffer())
+    if (buffer.byteLength > maxBytes) throw new Error('模型列表响应过大')
+    return new TextDecoder().decode(buffer)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    bytes += value.byteLength
+    if (bytes > maxBytes) {
+      await reader.cancel().catch(() => undefined)
+      throw new Error('模型列表响应过大')
+    }
+    text += decoder.decode(value, { stream: true })
+  }
+  return text + decoder.decode()
+}
+
+async function listProviderModels(payload: ListModelsPayload): Promise<{ success: boolean; data?: { models: string[] }; error?: string }> {
+  const endpoint = MODEL_PROVIDER_ENDPOINTS[payload.presetKey]
+  if (!endpoint) return { success: false, error: '自定义供应商暂不支持在线获取模型列表' }
+  const apiKey = payload.apiKey.trim()
+  if (!apiKey || looksLikeMaskedPlaceholder(apiKey)) return { success: false, error: '请先填写完整 API Key' }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
+  try {
+    const headers = endpoint.protocol === 'anthropic'
+      ? { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
+      : { Authorization: `Bearer ${apiKey}` }
+    const modelIds = new Set<string>()
+    const url = new URL(endpoint.url)
+    for (let pageIndex = 0; pageIndex < 20; pageIndex += 1) {
+      const response = await fetch(url, { headers, signal: controller.signal })
+      if (response.status === 401) return { success: false, error: 'API Key 无效 (401 Unauthorized)' }
+      if (response.status === 403) return { success: false, error: '权限不足 (403 Forbidden)' }
+      if (!response.ok) return { success: false, error: `获取模型列表失败 (${response.status})` }
+      const contentLength = Number(response.headers.get('content-length') || 0)
+      if (contentLength > 1024 * 1024) return { success: false, error: '模型列表响应过大' }
+      const page = parseProviderModelPage(JSON.parse(await readResponseTextLimited(response, 1024 * 1024)) as unknown)
+      page.models.forEach((id) => modelIds.add(id))
+      if (!page.hasMore || !page.lastId || modelIds.size >= 10_000) break
+      url.searchParams.set(endpoint.protocol === 'anthropic' ? 'after_id' : 'after', page.lastId)
+    }
+    const models = [...modelIds].sort((left, right) => left.localeCompare(right))
+    return models.length > 0 ? { success: true, data: { models } } : { success: false, error: '供应商未返回可用模型' }
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') return { success: false, error: '获取模型列表超时 (15s)' }
+    log.error('List provider models failed', { presetKey: payload.presetKey, error })
+    return { success: false, error: '获取模型列表失败，请检查网络' }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export function registerSettingsHandlers(): void {
-  const { APP_GET_VERSION, SETTINGS_SAVE, SETTINGS_GET, SETTINGS_GET_CATALOG, SETTINGS_TEST_CONNECTION, SETTINGS_WORKSPACE_VERIFY } = IPC_CHANNELS
+  const { APP_GET_VERSION, SETTINGS_SAVE, SETTINGS_GET, SETTINGS_GET_CATALOG, SETTINGS_TEST_CONNECTION, SETTINGS_LIST_MODELS, SETTINGS_WORKSPACE_VERIFY } = IPC_CHANNELS
 
   ipcMain.handle(APP_GET_VERSION, async () => {
     try {
@@ -242,6 +339,12 @@ export function registerSettingsHandlers(): void {
           providers,
           activeProvider: raw.activeProvider,
           configured: raw.configured ?? false,
+          onboardingCompleted: raw.onboardingCompleted ?? false,
+          readingPreferences: normalizeReadingPreferences(raw.readingPreferences),
+          providerModelOptions: normalizeProviderModelOptions(raw.providerModelOptions),
+          sessionPersistenceEnabled: raw.sessionPersistenceEnabled === true,
+          sessionRetentionDays: raw.sessionRetentionDays ?? 30,
+          sessionMaxStorageMb: raw.sessionMaxStorageMb ?? 200,
           windowBounds: raw.windowBounds,
         },
       }
@@ -301,7 +404,7 @@ export function registerSettingsHandlers(): void {
             return { success: false, error: '保存失败：API Key 不能为空' }
           }
           if (p.type === 'anthropic_compat' && (!p.baseUrl || !p.baseUrl.trim())) {
-            return { success: false, error: '保存失败：Anthropic 兼容模式必须填写 Base URL' }
+            return { success: false, error: '保存失败：Anthropic 兼容模式必须填写请求地址' }
           }
 
           // 检查模型是否在 catalog 中有效（标准供应商）
@@ -323,6 +426,22 @@ export function registerSettingsHandlers(): void {
       if (payload.configured !== undefined) {
         store.set('configured', payload.configured)
       }
+      if (typeof payload.onboardingCompleted === 'boolean') {
+        store.set('onboardingCompleted', payload.onboardingCompleted)
+      }
+      if (payload.readingPreferences !== undefined) {
+        store.set('readingPreferences', normalizeReadingPreferences(payload.readingPreferences))
+      }
+      if (payload.providerModelOptions !== undefined) {
+        const previous = normalizeProviderModelOptions(store.get('providerModelOptions'))
+        store.set('providerModelOptions', {
+          ...previous,
+          ...normalizeProviderModelOptions(payload.providerModelOptions),
+        })
+      }
+      if (typeof payload.sessionPersistenceEnabled === 'boolean') store.set('sessionPersistenceEnabled', payload.sessionPersistenceEnabled)
+      if (Number.isFinite(payload.sessionRetentionDays)) store.set('sessionRetentionDays', Math.min(365, Math.max(1, Math.round(payload.sessionRetentionDays!))))
+      if (Number.isFinite(payload.sessionMaxStorageMb)) store.set('sessionMaxStorageMb', Math.min(2048, Math.max(16, Math.round(payload.sessionMaxStorageMb!))))
 
       // Auto-compute configured status: any provider with a non-empty key
       const savedProviders = (store.get('providers') || []) as ProviderConfig[]
@@ -367,6 +486,15 @@ export function registerSettingsHandlers(): void {
       const message = err instanceof Error ? err.message : 'Unknown error'
       log.error('SETTINGS_TEST_CONNECTION failed', err)
       return { success: false, error: message }
+    }
+  })
+
+  ipcMain.handle(SETTINGS_LIST_MODELS, async (_event, payload: ListModelsPayload) => {
+    try {
+      return await listProviderModels(payload)
+    } catch (err) {
+      log.error('SETTINGS_LIST_MODELS failed', err)
+      return { success: false, error: '获取模型列表失败' }
     }
   })
 

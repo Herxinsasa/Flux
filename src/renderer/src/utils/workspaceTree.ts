@@ -42,39 +42,53 @@ function sortNodes(nodes: WorkspaceFsNode[]) {
   }
 }
 
+function sortChildren(nodes: WorkspaceFsNode[]) {
+  nodes.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  })
+}
+
+function insertWorkspaceFile(root: ChildList, file: WorkspaceFileEntry): void {
+  const parts = file.relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (parts.length === 0) return
+
+  let parent: ChildList = root
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    const isLast = i === parts.length - 1
+    const pathKey = parts.slice(0, i + 1).join('/')
+    if (!isLast) {
+      parent = findOrCreateDir(parent, part, pathKey)
+      continue
+    }
+    if (parent.children.some((node) => node.kind === 'file' && node.path === file.path)) return
+    const dot = part.lastIndexOf('.')
+    parent.children.push({
+      kind: 'file',
+      name: part,
+      path: file.path,
+      relativePath: file.relativePath,
+      extension: dot > 0 ? part.slice(dot).toLowerCase() : '',
+    })
+    sortChildren(parent.children)
+  }
+}
+
 /** 将工作区文件列表构建为目录树（文件夹在前，按名排序） */
 export function buildWorkspaceTree(files: WorkspaceFileEntry[]): WorkspaceFsNode[] {
   const root: ChildList = { children: [] }
-
-  for (const f of files) {
-    const parts = f.relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
-    if (parts.length === 0) continue
-
-    let parent: ChildList = root
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
-      const isLast = i === parts.length - 1
-      const pathKey = parts.slice(0, i + 1).join('/')
-
-      if (isLast) {
-        const dot = part.lastIndexOf('.')
-        const ext = dot > 0 ? part.slice(dot).toLowerCase() : ''
-        parent.children.push({
-          kind: 'file',
-          name: part,
-          path: f.path,
-          relativePath: f.relativePath,
-          extension: ext,
-        })
-      } else {
-        const dir = findOrCreateDir(parent, part, pathKey)
-        parent = dir
-      }
-    }
-  }
+  for (const file of files) insertWorkspaceFile(root, file)
 
   sortNodes(root.children)
   return root.children
+}
+
+/** Merge newly scanned entries without reconstructing directories that already exist. */
+export function mergeWorkspaceTree(tree: WorkspaceFsNode[], files: WorkspaceFileEntry[]): WorkspaceFsNode[] {
+  const root: ChildList = { children: tree }
+  for (const file of files) insertWorkspaceFile(root, file)
+  return [...root.children]
 }
 
 export function collectWorkspaceDirKeys(nodes: WorkspaceFsNode[], out: Set<string>) {

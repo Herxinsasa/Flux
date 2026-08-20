@@ -42,7 +42,8 @@ interface ChatState {
   inputHistory: string[]
   quoteText: string | null
   quoteRange: QuoteRange | null
-  sendMessage: (content: string, opts?: { contextFootnote?: string }) => void
+  sendMessage: (content: string, opts?: { contextFootnote?: string }) => Message
+  restoreMessages: (messages: Message[]) => void
   startAiMessage: () => string
   appendToken: (messageId: string, token: string) => void
   appendReasoningToken: (messageId: string, token: string) => void
@@ -88,20 +89,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
   quoteText: null,
   quoteRange: null,
 
-  sendMessage: (content, opts) =>
+  sendMessage: (content, opts) => {
+    const message: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content,
+      contextFootnote: opts?.contextFootnote,
+      timestamp: Date.now(),
+    }
     set((state) => ({
       agentStatus: 'running',
-      messages: pruneUiMessages([
-        ...state.messages,
-        {
-          id: crypto.randomUUID(),
-          role: 'user',
-          content,
-          contextFootnote: opts?.contextFootnote,
-          timestamp: Date.now(),
-        },
-      ]),
-    })),
+      messages: pruneUiMessages([...state.messages, message]),
+    }))
+    return message
+  },
+
+  restoreMessages: (messages) => set({
+    messages: pruneUiMessages(messages),
+    agentStatus: 'idle',
+  }),
 
   startAiMessage: () => {
     const id = crypto.randomUUID()

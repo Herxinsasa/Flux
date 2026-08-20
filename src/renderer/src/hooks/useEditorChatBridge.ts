@@ -1,7 +1,8 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useEditorStore } from '../stores/editorStore'
 import { useChatStore } from '../stores/chatStore'
 import { useFileStore } from '../stores/fileStore'
+import { confirmUnsavedDocument } from '../utils/unsavedChangesGuard'
 
 export interface LineEdit {
   startLine: number
@@ -70,20 +71,21 @@ interface ApplyChangeData {
  * - rejectChange:     User rejects the preview -> discard
  */
 export function useEditorChatBridge() {
+  const previewFilePathsRef = useRef(new Map<string, string>())
   const setCursorLine = useEditorStore((s) => s.setCursorLine)
-  const setPreviewContent = useEditorStore((s) => s.setPreviewContent)
   const appendQuote = useChatStore((s) => s.appendQuote)
   const setCurrentFile = useFileStore((s) => s.setCurrentFile)
 
   /* ── 1. Jump editor cursor to a specific line ─────────────────── */
 
   const jumpToLine = useCallback(
-    (line: number, filePath?: string) => {
+    async (line: number, filePath?: string) => {
       // If a different file is referenced, switch to it first
       if (filePath) {
         const currentFile = useFileStore.getState().currentFile
         if (currentFile !== filePath) {
-          setCurrentFile(filePath)
+          const switched = await setCurrentFile(filePath)
+          if (!switched) return
         }
       }
       // Setting cursorLine triggers EditorPane useEffect to scroll + highlight
@@ -111,7 +113,11 @@ export function useEditorChatBridge() {
   const previewChange = useCallback(
     async (change: PreviewChangeRequest) => {
       const result = await window.electronAPI.editor.previewChange(change)
-      return result as EditorBridgeResult<PreviewChangeData>
+      const typed = result as EditorBridgeResult<PreviewChangeData>
+      if (typed.success && typed.data) {
+        previewFilePathsRef.current.set(typed.data.changeId, typed.data.filePath)
+      }
+      return typed
     },
     [],
   )
@@ -119,7 +125,12 @@ export function useEditorChatBridge() {
   /* ── 4. Apply (confirm) a previewed change ────────────────────── */
 
   const applyChange = useCallback(async (changeId: string) => {
+    const targetPath = previewFilePathsRef.current.get(changeId)
+    if (targetPath && !(await confirmUnsavedDocument(targetPath))) {
+      return { success: false, error: '已取消 AI 修改，未覆盖未保存内容' } as EditorBridgeResult<ApplyChangeData>
+    }
     const result = (await window.electronAPI.editor.applyChange(changeId)) as EditorBridgeResult<ApplyChangeData>
+    previewFilePathsRef.current.delete(changeId)
     if (result.success) {
       // Clear preview in editor
       useEditorStore.getState().setPreviewContent(null)
@@ -143,6 +154,7 @@ export function useEditorChatBridge() {
 
   const rejectChange = useCallback(async (changeId: string) => {
     const result = (await window.electronAPI.editor.rejectChange(changeId)) as EditorBridgeResult
+    previewFilePathsRef.current.delete(changeId)
     if (result.success) {
       // Clear preview in editor
       useEditorStore.getState().setPreviewContent(null)
@@ -161,20 +173,25 @@ export function useEditorChatBridge() {
   // 监听主进程写入完成事件：同步内容 + 高亮新增文本区
   useEffect(() => {
     const unsub = window.electronAPI.editor.onChangeApplied((payload) => {
-      const currentFile = useFileStore.getState().currentFile
-      if (currentFile !== payload.filePath) {
-        useFileStore.getState().setCurrentFile(payload.filePath)
-      }
+      void (async () => {
+        const currentFile = useFileStore.getState().currentFile
+        if (currentFile !== payload.filePath) {
+          if (!(await confirmUnsavedDocument(payload.filePath))) return
+          const switched = await useFileStore.getState().setCurrentFile(payload.filePath)
+          if (!switched) return
+        } else {
+          const state = useEditorStore.getState()
+          const session = state.activeDocumentPath ? state.documentSessions[state.activeDocumentPath] : undefined
+          if (session?.dirty && state.content !== payload.content) return
+        }
 
-      useEditorStore.getState().setContent(payload.content)
-      useEditorStore.getState().markClean()
-      useEditorStore.getState().bumpEditorHydration()
-
-      if (payload.changed) {
-        useEditorStore
-          .getState()
-          .requestHighlightChangedLines(payload.startLine, payload.endLine)
-      }
+        await useFileStore.getState().loadFileContent(payload.filePath, true)
+        if (payload.changed && useFileStore.getState().currentFile === payload.filePath) {
+          useEditorStore
+            .getState()
+            .requestHighlightChangedLines(payload.startLine, payload.endLine)
+        }
+      })()
     })
 
     return () => {

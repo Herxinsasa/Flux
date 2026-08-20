@@ -11,3 +11,9 @@ scripts/build-isv.mjs
 .env.*
 *.tsbuildinfo
 config/flux-settings.json
+.codegraph/
+.understand-anything/
+.claude/settings.local.json
+.claude/.review-status.json
+
+src/main/index.ts.bak

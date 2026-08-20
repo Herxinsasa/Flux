@@ -9,10 +9,63 @@ export interface FileInfo {
   extension: string;
 }
 
+export type FluxErrorCode =
+  | 'NOT_FOUND'
+  | 'PERMISSION_DENIED'
+  | 'UNSUPPORTED_FORMAT'
+  | 'ENCODING_UNREPRESENTABLE'
+  | 'VERSION_CONFLICT'
+  | 'INVALID_DATA'
+  | 'CANCELLED'
+  | 'QUOTA_EXCEEDED'
+  | 'IO_ERROR';
+
+export type TextEncoding = 'utf8' | 'utf8-bom' | 'gbk' | 'utf16le' | 'utf16be';
+
+export type LineEnding = 'lf' | 'crlf';
+
+export interface FileVersion {
+  mtimeMs: number;
+  size: number;
+  contentHash: string;
+}
+
+export interface TextDocumentSnapshot {
+  filePath: string;
+  content: string;
+  encoding: TextEncoding;
+  lineEnding: LineEnding;
+  version: FileVersion;
+  sampled: boolean;
+}
+
+export interface SaveTextRequest {
+  filePath: string;
+  content: string;
+  encoding: TextEncoding;
+  lineEnding: LineEnding;
+  expectedVersion: FileVersion;
+}
+
+export interface SaveTextResult {
+  version: FileVersion;
+}
+
 /** 打开文件夹后列出的工作区文件（相对根目录路径） */
 export interface WorkspaceFileEntry {
   path: string;
   relativePath: string;
+}
+
+export interface TaskStartData {
+  taskId: string
+}
+
+export interface WorkspaceScanEvent {
+  taskId: string
+  status: 'batch' | 'complete' | 'cancelled' | 'error'
+  entries?: WorkspaceFileEntry[]
+  error?: string
 }
 
 /** 工作区 config/config.json 中的供应商信息（不含 API Key） */
@@ -46,6 +99,7 @@ export interface IpcResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  code?: FluxErrorCode;
 }
 
 export type ProgressCallback = (progress: { loaded: number; total: number }) => void;
@@ -136,4 +190,13 @@ export interface LogReadLinesPayload {
 export interface WorkspaceSessionPayload {
   pinnedFacts: string[]
   workingSummary: string | null
+}
+
+export interface LogIndexTaskEvent {
+  taskId: string
+  status: 'progress' | 'complete' | 'cancelled' | 'error'
+  loadedBytes?: number
+  totalBytes?: number
+  data?: LogIndexPayload
+  error?: string
 }

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useFileStore } from '../../stores/fileStore'
 import { useEditorStore } from '../../stores/editorStore'
+import { MARKDOWN_COMMAND_GROUPS } from '../editor/markdownCommandModel'
 
 type TopMenu = 'file' | 'edit' | 'paragraph' | 'view' | 'help' | null
 
@@ -13,6 +14,7 @@ interface MenuBarProps {
 
 export function MenuBar({ onOpenSettings, onOpenSkills, onOpenHelp, onOpenAbout }: MenuBarProps) {
   const [open, setOpen] = useState<TopMenu>(null)
+  const markdownMode = useEditorStore((state) => state.mode === 'markdown')
   const rootRef = useRef<HTMLDivElement>(null)
   const lastEditableRef = useRef<HTMLElement | null>(null)
 
@@ -81,7 +83,7 @@ export function MenuBar({ onOpenSettings, onOpenSkills, onOpenHelp, onOpenAbout 
     'px-2.5 py-1 rounded text-app-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--hover)] border-0 bg-transparent cursor-pointer font-[var(--font-ui)]'
 
   const itemClass =
-    'block w-full text-left px-3 py-1.5 text-app-sm text-[var(--text-primary)] hover:bg-[var(--hover)] cursor-pointer font-[var(--font-ui)] border-0 bg-transparent'
+    'block w-full text-left px-3 py-1.5 text-app-sm text-[var(--text-primary)] hover:bg-[var(--hover)] cursor-pointer font-[var(--font-ui)] border-0 bg-transparent disabled:opacity-40 disabled:cursor-not-allowed'
 
   return (
     <div
@@ -206,138 +208,27 @@ export function MenuBar({ onOpenSettings, onOpenSkills, onOpenHelp, onOpenAbout 
         </button>
         {open === 'paragraph' && (
           <div className="absolute left-0 top-full mt-0.5 py-1 min-w-[200px] rounded-[var(--radius-sm)] border border-[var(--border-visible)] bg-[var(--bg-card)] shadow-lg z-[200]">
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('# ')
-              }}
-            >
-              一级标题
-            </button>
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('## ')
-              }}
-            >
-              二级标题
-            </button>
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('### ')
-              }}
-            >
-              三级标题
-            </button>
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('#### ')
-              }}
-            >
-              四级标题
-            </button>
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('##### ')
-              }}
-            >
-              五级标题
-            </button>
-
-            <div className="mx-2 my-1 border-t border-[var(--border-subtle)]" />
-
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('- ')
-              }}
-            >
-              无序列表
-            </button>
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('1. ')
-              }}
-            >
-              有序列表
-            </button>
-
-            <div className="mx-2 my-1 border-t border-[var(--border-subtle)]" />
-
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('> ')
-              }}
-            >
-              引用
-            </button>
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('\n> 引用内容\n> 继续补充\n')
-              }}
-            >
-              引用块
-            </button>
-
-            <div className="mx-2 my-1 border-t border-[var(--border-subtle)]" />
-
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('\n```\n\n```\n')
-              }}
-            >
-              代码块
-            </button>
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('\n| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| 内容1 | 内容2 | 内容3 |\n')
-              }}
-            >
-              表格
-            </button>
-
-            <div className="mx-2 my-1 border-t border-[var(--border-subtle)]" />
-
-            <button
-              type="button"
-              className={itemClass}
-              onClick={() => {
-                close()
-                useEditorStore.getState().requestInsertAtCursor('\n---\n')
-              }}
-            >
-              水平分割线
-            </button>
+            {MARKDOWN_COMMAND_GROUPS.map((group, groupIndex) => (
+              <div key={group.label}>
+                {groupIndex > 0 && <div className="mx-2 my-1 border-t border-[var(--border-subtle)]" />}
+                <div className="px-3 py-1 text-xs text-[var(--text-hint)] select-none">{group.label}</div>
+                {group.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={itemClass}
+                    disabled={!markdownMode}
+                    onClick={() => {
+                      if (!markdownMode) return
+                      close()
+                      useEditorStore.getState().requestMarkdownCommand(item.id)
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ))}
           </div>
         )}
       </div>

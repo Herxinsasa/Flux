@@ -1,166 +1,41 @@
-import { useCallback, useEffect, useRef, useState, useDeferredValue, memo } from 'react'
-import type { EditorView } from '@codemirror/view'
+import { useCallback, useEffect, useState, memo } from 'react'
+import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { useFileStore } from '../../stores/fileStore'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { applyMarkdownZoomAction, getMarkdownZoomPercent } from '../../hooks/useShortcuts'
 import { EditorPane } from './EditorPane'
-import { MdPreview } from './MdPreview'
+import { MdWysiwygEditor } from './MdWysiwygEditor'
 import { MdOutlinePanel } from './MdOutlinePanel'
-import { findNearestHeadingIdForLine, type MdOutlineItem } from '../../utils/markdownHeadingIds'
+import type { MdOutlineItem } from '../../utils/markdownHeadingIds'
 
-/** 分栏视图 — 左源码驱动右预览；右侧手动滚动可暂停同步，标题/光标变化时重新对齐 */
-function SplitView({
-  sourceContent,
-  baseFilePath,
-}: {
-  sourceContent: string
-  baseFilePath: string | null
-}) {
-  const cursorLine = useEditorStore((s) => s.cursorLine)
-  const jumpOutlineTick = useEditorStore((s) => s.jumpOutlineTick)
-  const jumpOutlineLine = useEditorStore((s) => s.jumpOutlineLine)
+const StableEditorPane = memo(EditorPane)
 
-  const rightRef = useRef<HTMLDivElement>(null)
-  const programmaticPreviewScrollRef = useRef(false)
-  const lastAlignedHeadingIdRef = useRef<string | null>(null)
-  const previewSyncPausedRef = useRef(false)
-
-  const [sourceView, setSourceView] = useState<EditorView | null>(null)
-  const [previewSyncPaused, setPreviewSyncPaused] = useState(false)
-  const [scrollTarget, setScrollTarget] = useState<{ id: string | null; key: number }>({ id: null, key: 0 })
-
-  useEffect(() => {
-    previewSyncPausedRef.current = previewSyncPaused
-  }, [previewSyncPaused])
-
-  const markProgrammaticPreviewScroll = useCallback(() => {
-    programmaticPreviewScrollRef.current = true
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        programmaticPreviewScrollRef.current = false
-      })
-    })
-  }, [])
-
-  const syncPreviewToSourceScroll = useCallback(() => {
-    if (previewSyncPausedRef.current || !sourceView || !rightRef.current) return
-
-    const sourceScrollEl = sourceView.scrollDOM
-    const previewScrollEl = rightRef.current
-    const sourceScrollable = sourceScrollEl.scrollHeight - sourceScrollEl.clientHeight
-    const previewScrollable = previewScrollEl.scrollHeight - previewScrollEl.clientHeight
-    if (sourceScrollable <= 0 || previewScrollable <= 0) return
-
-    markProgrammaticPreviewScroll()
-    previewScrollEl.scrollTop = (sourceScrollEl.scrollTop / sourceScrollable) * previewScrollable
-  }, [markProgrammaticPreviewScroll, sourceView])
-
-  const realignPreviewToLine = useCallback(
-    (line: number, force = false) => {
-      const headingId = findNearestHeadingIdForLine(sourceContent, line)
-      if (!headingId) return
-      if (!force && !previewSyncPaused && headingId === lastAlignedHeadingIdRef.current) return
-
-      lastAlignedHeadingIdRef.current = headingId
-      setPreviewSyncPaused(false)
-      markProgrammaticPreviewScroll()
-      setScrollTarget((prev) => ({ id: headingId, key: prev.key + 1 }))
-    },
-    [markProgrammaticPreviewScroll, previewSyncPaused, sourceContent],
-  )
-
-  useEffect(() => {
-    if (!sourceView) return
-
-    const sourceScrollEl = sourceView.scrollDOM
-    const handleSourceScroll = () => {
-      if (previewSyncPausedRef.current) {
-        previewSyncPausedRef.current = false
-        setPreviewSyncPaused(false)
-      }
-      syncPreviewToSourceScroll()
-    }
-
-    sourceScrollEl.addEventListener('scroll', handleSourceScroll, { passive: true })
-    return () => sourceScrollEl.removeEventListener('scroll', handleSourceScroll)
-  }, [sourceView, syncPreviewToSourceScroll])
-
-  useEffect(() => {
-    syncPreviewToSourceScroll()
-  }, [sourceContent, syncPreviewToSourceScroll])
-
-  useEffect(() => {
-    if (cursorLine <= 0) return
-    realignPreviewToLine(cursorLine, previewSyncPaused)
-  }, [cursorLine, previewSyncPaused, realignPreviewToLine])
-
-  useEffect(() => {
-    if (jumpOutlineTick === 0 || jumpOutlineLine <= 0) return
-    realignPreviewToLine(jumpOutlineLine, true)
-  }, [jumpOutlineLine, jumpOutlineTick, realignPreviewToLine])
-
-  const handlePreviewScroll = useCallback(() => {
-    if (programmaticPreviewScrollRef.current) return
-    setPreviewSyncPaused(true)
-  }, [])
-
-  return (
-    <div style={{
-      flex: 1,
-      minHeight: 0,
-      display: 'flex',
-      flexDirection: 'row',
-      overflow: 'hidden',
-    }}>
-      {/* 源码（左）— 真实滚动体在 CodeMirror 内部 scroller */}
-      <div
-        className="markdown-split-left"
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflow: 'hidden',
-          borderRight: '1px solid var(--border-subtle)',
-        }}
-      >
-        <EditorPane hideFileBar onEditorViewChange={setSourceView} />
-      </div>
-      {/* 预览（右）— 可见滚动条；用户手动滚动时暂停跟随 */}
-      <div
-        ref={rightRef}
-        className="markdown-split-right flux-scroll"
-        onScroll={handlePreviewScroll}
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflow: 'auto',
-          background: 'var(--bg-viewer)',
-        }}
-      >
-        <MdPreview
-          content={sourceContent}
-          baseFilePath={baseFilePath}
-          scrollable={false}
-          scrollToHeadingId={scrollTarget.id}
-          scrollRequestKey={scrollTarget.key}
-        />
-      </div>
-    </div>
-  )
-}
-
-/** 仅在大纲打开时挂载，避免关闭时仍随按键订阅全文；useDeferredValue 缓解解析与渲染抢占 */
+/** 仅在大纲打开时挂载；输入期间合并全文更新，避免每个按键都重新解析长文档。 */
 const MarkdownOutlineAside = memo(function MarkdownOutlineAside({
   onPick,
 }: {
   onPick: (item: MdOutlineItem) => void
 }) {
-  const rawContent = useEditorStore((s) => s.content)
-  const outlineMarkdown = useDeferredValue(rawContent)
+  const [outlineMarkdown, setOutlineMarkdown] = useState(() => useEditorStore.getState().content)
+  useEffect(() => {
+    let timer: number | null = null
+    const unsubscribe = useEditorStore.subscribe((state, previousState) => {
+      if (state.content === previousState.content) return
+      if (timer != null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => setOutlineMarkdown(useEditorStore.getState().content), 250)
+    })
+    return () => {
+      unsubscribe()
+      if (timer != null) window.clearTimeout(timer)
+    }
+  }, [])
   return (
     <div
       className="flex flex-col min-h-0 shrink-0 overflow-hidden"
       style={{
         width: 220,
-        borderLeft: '1px solid var(--border-subtle)',
+        borderRight: '1px solid var(--border-subtle)',
         background: 'var(--bg-panel)',
       }}
     >
@@ -173,7 +48,10 @@ export function MarkdownEditor() {
   const markdownEditSurface = useEditorStore((s) => s.markdownEditSurface)
   const isDirty = useEditorStore((s) => s.isDirty)
   const setMarkdownEditSurface = useEditorStore((s) => s.setMarkdownEditSurface)
+  const setContent = useEditorStore((s) => s.setContent)
   const requestJumpToOutlineLine = useEditorStore((s) => s.requestJumpToOutlineLine)
+  const theme = useSettingsStore((s) => s.theme)
+  const readingPreferences = useSettingsStore((s) => s.readingPreferences)
 
   const currentFile = useFileStore((s) => s.currentFile)
   const currentFileName = useFileStore((s) => {
@@ -182,49 +60,34 @@ export function MarkdownEditor() {
   })
 
   const [outlineOpen, setOutlineOpen] = useState(false)
-  const [previewZoom, setPreviewZoom] = useState(1)
-  const zoomLayerRef = useRef<HTMLDivElement>(null)
-  const pendingOutlineLineRef = useRef<number | null>(null)
+  const [wysiwygOutlineTarget, setWysiwygOutlineTarget] = useState<{
+    level: number
+    text: string
+    occurrence: number
+    requestId: number
+  } | null>(null)
+  const zoomPercent = getMarkdownZoomPercent()
 
   useEffect(() => {
-    setMarkdownEditSurface('wysiwyg')
     setOutlineOpen(false)
-    setPreviewZoom(1)
-  }, [currentFile, setMarkdownEditSurface])
-
-  useEffect(() => {
-    if (markdownEditSurface === 'wysiwyg') return
-    const line = pendingOutlineLineRef.current
-    if (line == null) return
-    pendingOutlineLineRef.current = null
-    requestJumpToOutlineLine(line)
-  }, [markdownEditSurface, requestJumpToOutlineLine])
-
-  useEffect(() => {
-    const el = zoomLayerRef.current
-    if (!el) return
-    const wheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return
-      e.preventDefault()
-      setPreviewZoom((z) => {
-        const delta = e.deltaY > 0 ? -0.06 : 0.06
-        return Math.min(2.2, Math.max(0.55, Math.round((z + delta) * 100) / 100))
-      })
-    }
-    el.addEventListener('wheel', wheel, { passive: false })
-    return () => el.removeEventListener('wheel', wheel)
-  }, [markdownEditSurface])
+    // 文件切换时清除大纲跳转目标，避免残留目标在新编辑器就绪后误跳
+    setWysiwygOutlineTarget(null)
+  }, [currentFile])
 
   const onOutlinePick = useCallback(
     (item: MdOutlineItem) => {
       if (markdownEditSurface === 'wysiwyg') {
-        pendingOutlineLineRef.current = item.line
-        setMarkdownEditSurface('split')
+        setWysiwygOutlineTarget({
+          level: item.level,
+          text: item.text,
+          occurrence: item.occurrence,
+          requestId: Date.now(),
+        })
       } else {
         requestJumpToOutlineLine(item.line)
       }
     },
-    [markdownEditSurface, setMarkdownEditSurface, requestJumpToOutlineLine],
+    [markdownEditSurface, requestJumpToOutlineLine],
   )
 
   const tabBtn = (active: boolean) =>
@@ -233,8 +96,6 @@ export function MarkdownEditor() {
         ? 'bg-[var(--selection)] text-[var(--text-primary)]'
         : 'text-[var(--text-secondary)] hover:bg-[var(--hover)] bg-transparent'
     }`
-
-  const sourceContent = useEditorStore((s) => s.content)
 
   return (
     <div
@@ -262,7 +123,7 @@ export function MarkdownEditor() {
           <span
             style={{
               fontFamily: 'var(--font-mono)',
-              fontSize: 12,
+              fontSize: 13,
               color: 'var(--accent)',
               marginRight: 4,
               maxWidth: 200,
@@ -281,7 +142,7 @@ export function MarkdownEditor() {
             className={tabBtn(markdownEditSurface === 'wysiwyg')}
             onClick={() => setMarkdownEditSurface('wysiwyg')}
           >
-            预览
+            编辑
           </button>
           <button
             type="button"
@@ -290,52 +151,81 @@ export function MarkdownEditor() {
           >
             源码
           </button>
-          <button
-            type="button"
-            className={tabBtn(markdownEditSurface === 'split')}
-            onClick={() => setMarkdownEditSurface('split')}
-          >
-            分栏
-          </button>
           <button type="button" className={tabBtn(outlineOpen)} onClick={() => setOutlineOpen((o) => !o)}>
             大纲
+          </button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginLeft: 'auto' }}>
+          <button
+            type="button"
+            className={tabBtn(false)}
+            onClick={() => applyMarkdownZoomAction('out')}
+            title="缩小内容 (Ctrl+-)"
+            aria-label="缩小内容"
+          >
+            <ZoomOut size={16} aria-hidden="true" />
+          </button>
+          <span
+            style={{
+              width: 48,
+              textAlign: 'center',
+              color: 'var(--text-secondary)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 13,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+            aria-label={`当前内容缩放 ${zoomPercent}%`}
+          >
+            {zoomPercent}%
+          </span>
+          <button
+            type="button"
+            className={tabBtn(false)}
+            onClick={() => applyMarkdownZoomAction('in')}
+            title="放大内容 (Ctrl+=)"
+            aria-label="放大内容"
+          >
+            <ZoomIn size={16} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={tabBtn(false)}
+            onClick={() => applyMarkdownZoomAction('reset')}
+            title="复位内容缩放 (Ctrl+0)"
+            aria-label="复位内容缩放"
+          >
+            <RotateCcw size={16} aria-hidden="true" />
           </button>
         </div>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+        {outlineOpen && <MarkdownOutlineAside onPick={onOutlinePick} />}
         {/* 仅用 flex:1 + minHeight:0 参与剩余高度分配；勿写 height:0，嵌套 flex 下会把可用高度算成 0，预览/源码整块消失 */}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {markdownEditSurface === 'wysiwyg' ? (
             <div
-              ref={zoomLayerRef}
-              className="markdown-zoom-layer flux-scroll"
+              className="flux-scroll"
               style={{
                 flex: 1,
                 minHeight: 0,
                 overflow: 'auto',
+                fontSize: `${readingPreferences.bodyFontSize}px`,
               }}
             >
-              <div
-                style={{
-                  transform: `scale(${previewZoom})`,
-                  transformOrigin: 'top left',
-                  width: `${100 / previewZoom}%`,
-                  boxSizing: 'border-box',
-                }}
-              >
-                <MdPreview content={sourceContent} baseFilePath={currentFile} scrollable={false} />
-              </div>
+              <MdWysiwygEditor
+                fileKey={currentFile ?? 'untitled'}
+                onMarkdownCommit={setContent}
+                theme={theme}
+                outlineTarget={wysiwygOutlineTarget}
+              />
             </div>
-          ) : markdownEditSurface === 'split' ? (
-            <SplitView sourceContent={sourceContent} baseFilePath={currentFile} />
           ) : (
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <EditorPane hideFileBar />
+              <StableEditorPane hideFileBar />
             </div>
           )}
         </div>
-        {outlineOpen && <MarkdownOutlineAside onPick={onOutlinePick} />}
       </div>
     </div>
   )
