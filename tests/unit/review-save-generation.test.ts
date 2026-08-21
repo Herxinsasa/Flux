@@ -75,4 +75,26 @@ describe('review save generation', () => {
 
     expect(useReviewStore.getState().documents['c:/docs/note.md'].sidecar.comments[0].replies?.[0].body).toBe('fixed')
   })
+
+  it('caps follow-up saves while anchors keep moving', async () => {
+    await useReviewStore.getState().loadDocument(sourcePath, initialContent)
+    const anchor = createReviewAnchor(initialContent, 0, 5)!
+    save.mockImplementation(async ({ sidecar }: any) => {
+      const prefix = 'x'.repeat(save.mock.calls.length)
+      useReviewStore.getState().reanchorDocument(sourcePath, `${prefix}${initialContent}`)
+      return {
+        success: true,
+        data: {
+          sidecar,
+          sidecarVersion: { mtimeMs: save.mock.calls.length, size: 1, contentHash: `save-${save.mock.calls.length}` },
+        },
+      }
+    })
+
+    const saved = await useReviewStore.getState().addComment(sourcePath, initialContent, anchor, 'note')
+
+    expect(saved).toBe(true)
+    expect(save).toHaveBeenCalledTimes(3)
+    expect(useReviewStore.getState().documents['c:/docs/note.md'].saving).toBe(false)
+  })
 })

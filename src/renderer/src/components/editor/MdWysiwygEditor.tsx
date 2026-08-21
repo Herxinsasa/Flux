@@ -40,7 +40,11 @@ import { runWysiwygMarkdownCommand } from './wysiwygMarkdownCommands'
 import { resolveSerializedReviewAnchor } from './wysiwygReviewAnchor'
 import { mermaidCodeBlockView } from './mermaidCodeBlockView'
 import { frontmatterNode, registerFrontmatterParsing, registerFrontmatterStringify } from './frontmatterNode'
-import { wysiwygReviewDecorations, refreshWysiwygReviewDecorations } from './wysiwygReviewDecorations'
+import {
+  haveWysiwygReviewDecorationsChanged,
+  wysiwygReviewDecorations,
+  refreshWysiwygReviewDecorations,
+} from './wysiwygReviewDecorations'
 import { findTextRangeInProseMirror } from './wysiwygReviewPosition'
 import { plainHeadingText } from '../../utils/markdownHeadingIds'
 
@@ -255,17 +259,21 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
           editor.action(replaceAll(state.content, true))
         })
         // 批注高亮：批注列表变化时刷新装饰
-        const refreshDecorations = () => {
+        let decorationComments: ReviewComment[] = []
+        const refreshDecorations = (force = false) => {
           if (disposed || !viewRef.current) return
           const document = useReviewStore.getState().documents[normalizeDocumentPath(currentFile ?? '')]
-          refreshWysiwygReviewDecorations(viewRef.current, document?.sidecar.comments ?? [])
+          const comments = document?.sidecar.comments ?? []
+          if (!force && !haveWysiwygReviewDecorationsChanged(decorationComments, comments)) return
+          decorationComments = comments
+          refreshWysiwygReviewDecorations(viewRef.current, comments)
         }
         const unsubscribeReview = useReviewStore.subscribe((state, previousState) => {
           if (state.documents === previousState.documents) return
           refreshDecorations()
         })
         unsubscribeReviewRef.current = unsubscribeReview
-        refreshDecorations()
+        refreshDecorations(true)
       })
       .catch((error: unknown) => {
         if (disposed) return
@@ -440,7 +448,8 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
     const markdown = useEditorStore.getState().content
     let reviewAnchor: ReviewAnchor | null = null
     if (!selection.empty && selectedText) {
-      const markerId = `${Date.now()}${selection.from}${selection.to}`
+      const markerId = globalThis.crypto?.randomUUID?.()
+        ?? `${Date.now()}${selection.from}${selection.to}${Math.random().toString(36).slice(2)}`
       const startMarker = `FLUXREVIEWSTART${markerId}`
       const endMarker = `FLUXREVIEWEND${markerId}`
       const markedDoc = view.state.tr

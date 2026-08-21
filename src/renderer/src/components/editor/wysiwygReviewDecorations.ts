@@ -6,6 +6,21 @@ import { findTextRangeInProseMirror } from './wysiwygReviewPosition'
 
 const wysiwygReviewDecorationsKey = new PluginKey<DecorationSet>('flux-wysiwyg-review-decorations')
 
+export function haveWysiwygReviewDecorationsChanged(
+  previous: ReviewComment[],
+  next: ReviewComment[],
+): boolean {
+  if (previous.length !== next.length) return true
+  return previous.some((comment, index) => {
+    const candidate = next[index]
+    return !candidate
+      || comment.id !== candidate.id
+      || comment.anchorStatus !== candidate.anchorStatus
+      || comment.anchor.quote !== candidate.anchor.quote
+      || (comment.anchor.end > comment.anchor.start) !== (candidate.anchor.end > candidate.anchor.start)
+  })
+}
+
 /**
  * 编辑界面（WYSIWYG）批注高亮：ProseMirror decoration 给批注引用文本加浅蓝背景，
  * 与源码模式 cm-review-highlight 观感一致。

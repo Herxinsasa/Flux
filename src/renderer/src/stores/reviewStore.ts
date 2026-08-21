@@ -56,6 +56,7 @@ interface ReviewState {
 }
 
 const loadRequests = new Map<string, number>()
+const MAX_SAVE_ATTEMPTS = 3
 
 function nextCommentId(): string {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
@@ -67,6 +68,7 @@ export const useReviewStore = create<ReviewState>((set, get) => {
     sourcePath: string,
     sourceContent: string,
     sidecar: ReviewSidecar,
+    attempt = 1,
   ): Promise<boolean> => {
     const key = normalizeDocumentPath(sourcePath)
     const current = get().documents[key]
@@ -139,10 +141,10 @@ export const useReviewStore = create<ReviewState>((set, get) => {
       },
     }))
     const currentAfterSave = get().documents[key]
+    if (attempt >= MAX_SAVE_ATTEMPTS) return true
     return currentAfterSave
-      ? saveDocument(sourcePath, currentAfterSave.sourceContent, currentAfterSave.sidecar)
+      ? saveDocument(sourcePath, currentAfterSave.sourceContent, currentAfterSave.sidecar, attempt + 1)
       : false
-    return true
   }
 
   return {

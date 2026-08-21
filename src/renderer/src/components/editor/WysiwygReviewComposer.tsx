@@ -7,46 +7,50 @@ interface WysiwygReviewComposerProps {
   onSave: (body: string) => Promise<boolean>
 }
 
+export function clampReviewComposerPosition(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): { left: number; top: number } {
+  const margin = 8
+  return {
+    left: Math.max(margin, Math.min(x, Math.max(margin, viewportWidth - width - margin))),
+    top: Math.max(margin, Math.min(y, Math.max(margin, viewportHeight - height - margin))),
+  }
+}
+
 export function WysiwygReviewComposer({ x, y, onCancel, onSave }: WysiwygReviewComposerProps) {
   const [body, setBody] = useState('')
   const [saving, setSaving] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  // 默认在光标下方展开；实测超出视口底部时向上翻转，保证气泡完整可见不被遮挡
-  const [flipUp, setFlipUp] = useState(false)
+  const [position, setPosition] = useState(() =>
+    clampReviewComposerPosition(x, y, 300, 140, window.innerWidth, window.innerHeight),
+  )
 
   const measure = useCallback(() => {
     const el = containerRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
-    setFlipUp((current) => {
-      const next = rect.bottom > window.innerHeight - 8
-      return next === current ? current : next
-    })
-  }, [])
+    const next = clampReviewComposerPosition(x, y, rect.width, rect.height, window.innerWidth, window.innerHeight)
+    setPosition((current) => current.left === next.left && current.top === next.top ? current : next)
+  }, [x, y])
 
   useLayoutEffect(() => {
-    // 首次定位不钳制底部（可能出现越界），paint 前测量并翻转，用户无感知
     measure()
-  }, [measure])
-
-  useLayoutEffect(() => {
-    // 窗口缩放时重算翻转状态
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    if (containerRef.current) observer?.observe(containerRef.current)
     window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [measure])
-
-  const style: React.CSSProperties = flipUp
-    ? {
-        left: Math.max(8, Math.min(x, window.innerWidth - 300)),
-        bottom: Math.max(8, window.innerHeight - y),
-      }
-    : {
-        left: Math.max(8, Math.min(x, window.innerWidth - 300)),
-        top: Math.max(8, y),
-      }
 
   return (
-    <div ref={containerRef} className="review-composer" style={style}>
+    <div ref={containerRef} className="review-composer" style={position}>
       <textarea
         autoFocus
         value={body}
