@@ -2,6 +2,16 @@ import { create } from 'zustand'
 
 type Theme = 'dark' | 'light'
 
+export function resolveInitialTheme(value: unknown): Theme {
+  return value === 'light' ? 'light' : 'dark'
+}
+
+function getInitialTheme(): Theme {
+  return resolveInitialTheme(
+    typeof document === 'undefined' ? undefined : document.documentElement.dataset.theme,
+  )
+}
+
 export interface ReadingPreferences {
   uiFontFamily: string
   editorFontFamily: string
@@ -26,6 +36,11 @@ export const DEFAULT_READING_PREFERENCES: ReadingPreferences = {
   bodyFontSize: 16,
   codeFontSize: 13,
 }
+
+export const READING_BODY_FONT_SIZE_MIN = 8
+export const READING_BODY_FONT_SIZE_MAX = 40
+export const READING_CODE_FONT_SIZE_MIN = 6
+export const READING_CODE_FONT_SIZE_MAX = 36
 
 const FONT_FALLBACKS = {
   ui: "'Segoe UI', sans-serif",
@@ -53,8 +68,18 @@ export function normalizeReadingPreferences(value: Partial<ReadingPreferences> |
     uiFontFamily: safeFontFamily(value?.uiFontFamily, DEFAULT_READING_PREFERENCES.uiFontFamily),
     editorFontFamily: safeFontFamily(value?.editorFontFamily, DEFAULT_READING_PREFERENCES.editorFontFamily),
     monoFontFamily: safeFontFamily(value?.monoFontFamily, DEFAULT_READING_PREFERENCES.monoFontFamily),
-    bodyFontSize: clamp(value?.bodyFontSize, 12, 24, DEFAULT_READING_PREFERENCES.bodyFontSize),
-    codeFontSize: clamp(value?.codeFontSize, 11, 22, DEFAULT_READING_PREFERENCES.codeFontSize),
+    bodyFontSize: clamp(
+      value?.bodyFontSize,
+      READING_BODY_FONT_SIZE_MIN,
+      READING_BODY_FONT_SIZE_MAX,
+      DEFAULT_READING_PREFERENCES.bodyFontSize,
+    ),
+    codeFontSize: clamp(
+      value?.codeFontSize,
+      READING_CODE_FONT_SIZE_MIN,
+      READING_CODE_FONT_SIZE_MAX,
+      DEFAULT_READING_PREFERENCES.codeFontSize,
+    ),
   }
 }
 
@@ -95,7 +120,7 @@ interface SettingsState {
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  theme: 'dark',
+  theme: getInitialTheme(),
   providers: [],
   activeProvider: null,
   isConfigured: false,

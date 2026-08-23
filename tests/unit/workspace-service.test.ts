@@ -21,6 +21,7 @@ describe('workspace-service', () => {
     fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true })
     fs.mkdirSync(path.join(root, '.hidden'), { recursive: true })
     fs.mkdirSync(path.join(root, 'src'), { recursive: true })
+    fs.mkdirSync(path.join(root, 'empty-folder'), { recursive: true })
     fs.writeFileSync(path.join(root, 'node_modules', 'ignored.ts'), '')
     fs.writeFileSync(path.join(root, '.hidden', 'ignored.ts'), '')
     fs.writeFileSync(path.join(root, 'src', 'note.md.review.json'), '{}')
@@ -35,9 +36,14 @@ describe('workspace-service', () => {
       })
     })
 
-    expect(batches).toEqual([200, 200, 5])
-    expect(listWorkspaceFiles(root).some((entry) => entry.relativePath.includes('ignored'))).toBe(false)
-    expect(listWorkspaceFiles(root).some((entry) => entry.relativePath.endsWith('.review.json'))).toBe(false)
+    expect(batches).toEqual([200, 200, 7])
+    const entries = listWorkspaceFiles(root)
+    expect(entries.some((entry) => entry.relativePath.includes('ignored'))).toBe(false)
+    expect(entries.some((entry) => entry.relativePath.endsWith('.review.json'))).toBe(false)
+    expect(entries).toContainEqual(expect.objectContaining({
+      relativePath: 'empty-folder',
+      kind: 'directory',
+    }))
   })
 
   it('stops a scan after cancellation and does not emit completion', async () => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, memo } from 'react'
 import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { useFileStore } from '../../stores/fileStore'
-import { useSettingsStore } from '../../stores/settingsStore'
+import { DEFAULT_READING_PREFERENCES, useSettingsStore } from '../../stores/settingsStore'
 import { applyMarkdownZoomAction, getMarkdownZoomPercent } from '../../hooks/useShortcuts'
 import { EditorPane } from './EditorPane'
 import { MdWysiwygEditor } from './MdWysiwygEditor'
@@ -67,6 +67,15 @@ export function MarkdownEditor() {
     requestId: number
   } | null>(null)
   const zoomPercent = getMarkdownZoomPercent()
+  const contentZoom = readingPreferences.bodyFontSize / DEFAULT_READING_PREFERENCES.bodyFontSize
+
+  const handleWheelZoom = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (!event.ctrlKey && !event.metaKey) return
+    if (event.deltaY === 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    applyMarkdownZoomAction(event.deltaY < 0 ? 'in' : 'out')
+  }, [])
 
   useEffect(() => {
     setOutlineOpen(false)
@@ -100,6 +109,7 @@ export function MarkdownEditor() {
   return (
     <div
       className="markdown-editor-container"
+      onWheelCapture={handleWheelZoom}
       style={{
         height: '100%',
         display: 'flex',
@@ -210,13 +220,14 @@ export function MarkdownEditor() {
                 flex: 1,
                 minHeight: 0,
                 overflow: 'auto',
-                fontSize: `${readingPreferences.bodyFontSize}px`,
               }}
             >
               <MdWysiwygEditor
                 fileKey={currentFile ?? 'untitled'}
                 onMarkdownCommit={setContent}
                 theme={theme}
+                contentZoom={contentZoom}
+                codeFontSize={readingPreferences.codeFontSize}
                 outlineTarget={wysiwygOutlineTarget}
               />
             </div>

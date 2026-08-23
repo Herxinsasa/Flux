@@ -9,7 +9,12 @@ import { useSelectionHighlight } from '../../hooks/useSelectionHighlight'
 import { useJsonFormat } from '../../hooks/useJsonFormat'
 import { useEditorStore, EDITOR_MODE_LABEL } from '../../stores/editorStore'
 import { useChatStore } from '../../stores/chatStore'
-import { useSettingsStore } from '../../stores/settingsStore'
+import {
+  DEFAULT_READING_PREFERENCES,
+  READING_CODE_FONT_SIZE_MAX,
+  READING_CODE_FONT_SIZE_MIN,
+  useSettingsStore,
+} from '../../stores/settingsStore'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { useFileStore } from '../../stores/fileStore'
 import { JsonContextMenu } from './JsonContextMenu'
@@ -23,6 +28,7 @@ import { MarkdownContextMenu } from './MarkdownContextMenu'
 import { createSourceMarkdownEdit, type MarkdownCommandId } from './sourceMarkdownCommands'
 import { registerEditorDraftBuffer } from '../../utils/editorDraftBuffer'
 import { WysiwygReviewComposer } from './WysiwygReviewComposer'
+import { getMarkdownZoomAction } from '../../hooks/useShortcuts'
 
 /* ── Main editor pane ────────────────────────────────────────────── */
 
@@ -85,9 +91,9 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
   const draftTimerRef = useRef<number | null>(null)
   const dirtyMarkedRef = useRef(useEditorStore.getState().isDirty)
 
-  const MIN_FONT_SIZE = 11
-  const MAX_FONT_SIZE = 22
-  const DEFAULT_FONT_SIZE = 13
+  const MIN_FONT_SIZE = READING_CODE_FONT_SIZE_MIN
+  const MAX_FONT_SIZE = READING_CODE_FONT_SIZE_MAX
+  const DEFAULT_FONT_SIZE = DEFAULT_READING_PREFERENCES.codeFontSize
 
   useEffect(() => {
     setFontSize(readingPreferences.codeFontSize)
@@ -326,20 +332,13 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
         e.preventDefault()
         setShowSearch(true)
       }
-      // Ctrl+Plus / Ctrl+= 放大
-      if (mode !== 'markdown' && (e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) {
+      const zoomAction = getMarkdownZoomAction(e)
+      if (mode !== 'markdown' && zoomAction) {
         e.preventDefault()
-        setReadingPreferences({ codeFontSize: Math.min(MAX_FONT_SIZE, fontSize + 1) })
-      }
-      // Ctrl+Minus 缩小
-      if (mode !== 'markdown' && (e.ctrlKey || e.metaKey) && e.key === '-') {
-        e.preventDefault()
-        setReadingPreferences({ codeFontSize: Math.max(MIN_FONT_SIZE, fontSize - 1) })
-      }
-      // Ctrl+0 重置
-      if (mode !== 'markdown' && (e.ctrlKey || e.metaKey) && e.key === '0') {
-        e.preventDefault()
-        setReadingPreferences({ codeFontSize: DEFAULT_FONT_SIZE })
+        const next = zoomAction === 'reset'
+          ? DEFAULT_FONT_SIZE
+          : Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, fontSize + (zoomAction === 'in' ? 1 : -1)))
+        setReadingPreferences({ codeFontSize: next })
       }
       if (e.key === 'Escape' && showSearch) {
         setShowSearch(false)

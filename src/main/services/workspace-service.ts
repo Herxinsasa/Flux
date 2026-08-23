@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import type { TaskStartData, WorkspaceScanEvent } from '../../shared/types'
+import type { TaskStartData, WorkspaceFileEntry, WorkspaceScanEvent } from '../../shared/types'
 
 const IGNORE_DIR_NAMES = new Set([
   'node_modules',
@@ -63,7 +63,7 @@ const ALLOWED_EXT = new Set([
   '.swift',
 ])
 
-const MAX_FILES = 4000
+const MAX_WORKSPACE_ENTRIES = 4000
 const BATCH_SIZE = 200
 
 interface WorkspaceScanTask {
@@ -91,13 +91,8 @@ function isAllowedFile(filePath: string): boolean {
   return base === 'dockerfile' || base === 'makefile' || base === 'gemfile'
 }
 
-export interface WorkspaceFileEntry {
-  path: string
-  relativePath: string
-}
-
 /**
- * 递归列出工作区内可编辑文件（跳过常见依赖目录），按相对路径排序。
+ * 递归列出工作区内可编辑文件和目录（跳过常见依赖目录），按相对路径排序。
  */
 export function listWorkspaceFiles(rootDir: string): WorkspaceFileEntry[] {
   const normRoot = path.resolve(rootDir)
@@ -108,7 +103,7 @@ export function listWorkspaceFiles(rootDir: string): WorkspaceFileEntry[] {
   const out: WorkspaceFileEntry[] = []
 
   function walk(dir: string) {
-    if (out.length >= MAX_FILES) return
+    if (out.length >= MAX_WORKSPACE_ENTRIES) return
     let entries: fs.Dirent[]
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -116,14 +111,16 @@ export function listWorkspaceFiles(rootDir: string): WorkspaceFileEntry[] {
       return
     }
     for (const ent of entries) {
-      if (out.length >= MAX_FILES) break
+      if (out.length >= MAX_WORKSPACE_ENTRIES) break
       const full = path.join(dir, ent.name)
       if (ent.isDirectory()) {
         if (shouldIgnoreDirectory(ent.name)) continue
+        const rel = path.relative(normRoot, full).split(path.sep).join('/')
+        out.push({ path: full, relativePath: rel, kind: 'directory' })
         walk(full)
       } else if (ent.isFile() && !ent.name.endsWith('.review.json') && isAllowedFile(full)) {
         const rel = path.relative(normRoot, full).split(path.sep).join('/')
-        out.push({ path: full, relativePath: rel })
+        out.push({ path: full, relativePath: rel, kind: 'file' })
       }
     }
   }
@@ -134,7 +131,7 @@ export function listWorkspaceFiles(rootDir: string): WorkspaceFileEntry[] {
 }
 
 /**
- * Scan a workspace in short event-loop slices. Consumers receive at most 200 files at a time.
+ * Scan a workspace in short event-loop slices. Consumers receive at most 200 entries at a time.
  */
 export function startWorkspaceScan(
   rootDir: string,
@@ -153,9 +150,9 @@ export function startWorkspaceScan(
 
       const pendingDirs = [root]
       const batch: WorkspaceFileEntry[] = []
-      let fileCount = 0
+      let entryCount = 0
 
-      while (pendingDirs.length > 0 && fileCount < MAX_FILES) {
+      while (pendingDirs.length > 0 && entryCount < MAX_WORKSPACE_ENTRIES) {
         if (task.cancelled) {
           emit({ status: 'cancelled' })
           return
@@ -178,18 +175,35 @@ export function startWorkspaceScan(
           }
           const full = path.join(dir, entry.name)
           if (entry.isDirectory()) {
-            if (!shouldIgnoreDirectory(entry.name)) pendingDirs.push(full)
+            if (!shouldIgnoreDirectory(entry.name)) {
+              batch.push({
+                path: full,
+                relativePath: path.relative(root, full).split(path.sep).join('/'),
+                kind: 'directory',
+              })
+              entryCount++
+              pendingDirs.push(full)
+            }
+            if (batch.length === BATCH_SIZE) {
+              emit({ status: 'batch', entries: batch.splice(0, batch.length) })
+              await yieldToEventLoop()
+            }
+            if (entryCount >= MAX_WORKSPACE_ENTRIES) break
             continue
           }
           if (!entry.isFile() || entry.name.endsWith('.review.json') || !isAllowedFile(full)) continue
 
-          batch.push({ path: full, relativePath: path.relative(root, full).split(path.sep).join('/') })
-          fileCount++
+          batch.push({
+            path: full,
+            relativePath: path.relative(root, full).split(path.sep).join('/'),
+            kind: 'file',
+          })
+          entryCount++
           if (batch.length === BATCH_SIZE) {
             emit({ status: 'batch', entries: batch.splice(0, batch.length) })
             await yieldToEventLoop()
           }
-          if (fileCount >= MAX_FILES) break
+          if (entryCount >= MAX_WORKSPACE_ENTRIES) break
         }
         await yieldToEventLoop()
       }

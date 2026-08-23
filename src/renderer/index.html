@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Flux</title>
+    <script>
+      const initialTheme = new URLSearchParams(window.location.search).get('theme')
+      document.documentElement.dataset.theme = initialTheme === 'light' ? 'light' : 'dark'
+    </script>
   </head>
   <body>
     <div id="root"></div>

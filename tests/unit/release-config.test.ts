@@ -33,6 +33,7 @@ describe('baseline2.0 Windows release contract', () => {
 
   it('declares the supported installer associations and install UX', () => {
     const builder = read('electron-builder.yml')
+    const installer = read('resources/installer.nsh')
 
     for (const extension of ['md', 'markdown', 'txt', 'log']) {
       expect(builder).toContain(`ext: ${extension}`)
@@ -40,6 +41,11 @@ describe('baseline2.0 Windows release contract', () => {
     expect(builder).toContain('allowToChangeInstallationDirectory: true')
     expect(builder).toContain('createDesktopShortcut: true')
     expect(builder).toContain('createStartMenuShortcut: true')
+    expect(installer).toContain('!macro customInit')
+    expect(installer).toContain('${IfNot} ${UAC_IsInnerInstance}')
+    expect(installer).toContain('是否覆盖安装并保留现有配置')
+    expect(installer).toContain('!macro customCheckAppRunning')
+    expect(installer).toContain('Flux 正在运行')
   })
 
   it.each(['md', 'markdown', 'txt', 'log'])('accepts %s external launches', (extension) => {

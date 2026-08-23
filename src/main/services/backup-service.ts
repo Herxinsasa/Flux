@@ -10,9 +10,9 @@ import type {
   SaveBackupAsRequest,
 } from '../../shared/attachment-backup'
 import { DEFAULT_BACKUP_POLICY } from '../../shared/attachment-backup'
-import type { FluxErrorCode } from '../../shared/types'
+import type { FluxErrorCode, TextDocumentSnapshot } from '../../shared/types'
 import { getBackupCacheDir } from '../paths'
-import { readText } from './file-service'
+import { readTextAsync } from './file-service'
 
 interface BackupManifest {
   version: 1
@@ -23,6 +23,7 @@ interface BackupServiceOptions {
   rootDir?: string
   policy?: Partial<BackupPolicy>
   now?: () => number
+  sourceReader?: (filePath: string) => Promise<TextDocumentSnapshot>
 }
 
 function contentHash(content: string): string {
@@ -52,11 +53,13 @@ export class BackupService {
   private policy: BackupPolicy
   private writeQueue: Promise<void> = Promise.resolve()
   private readonly now: () => number
+  private readonly sourceReader: (filePath: string) => Promise<TextDocumentSnapshot>
 
   constructor(options: BackupServiceOptions = {}) {
     this.rootDir = options.rootDir ?? this.resolveDefaultRoot()
     this.policy = normalizePolicy(options.policy ?? {})
     this.now = options.now ?? Date.now
+    this.sourceReader = options.sourceReader ?? readTextAsync
   }
 
   private resolveDefaultRoot(): string {
@@ -133,9 +136,15 @@ export class BackupService {
   async findRecoveryCandidates(sourcePath?: string): Promise<BackupRecoveryCandidate[]> {
     const snapshots = await this.list(sourcePath)
     const candidates: BackupRecoveryCandidate[] = []
+    const currentBySource = new Map<string, Promise<TextDocumentSnapshot>>()
     for (const snapshot of snapshots) {
       try {
-        const current = readText(snapshot.sourcePath)
+        let currentPromise = currentBySource.get(snapshot.sourcePath)
+        if (!currentPromise) {
+          currentPromise = this.sourceReader(snapshot.sourcePath)
+          currentBySource.set(snapshot.sourcePath, currentPromise)
+        }
+        const current = await currentPromise
         const currentContentHash = contentHash(current.content)
         if (snapshot.contentHash === currentContentHash) continue
 

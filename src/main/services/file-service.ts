@@ -150,6 +150,35 @@ export function readText(filePath: string): TextDocumentSnapshot {
   }
 }
 
+export async function readTextAsync(filePath: string): Promise<TextDocumentSnapshot> {
+  if (!path.isAbsolute(filePath)) {
+    throw new FluxFileError('INVALID_DATA', 'Text file path must be absolute')
+  }
+  let stat: fs.Stats
+  let buffer: Buffer
+  try {
+    ;[stat, buffer] = await Promise.all([fs.promises.stat(filePath), fs.promises.readFile(filePath)])
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException
+    const code = nodeError.code === 'ENOENT' ? 'NOT_FOUND' : nodeError.code === 'EACCES' ? 'PERMISSION_DENIED' : 'IO_ERROR'
+    throw new FluxFileError(code, `Failed to read text file: ${nodeError.message}`)
+  }
+  if (!stat.isFile()) throw new FluxFileError('UNSUPPORTED_FORMAT', 'Path is not a regular file')
+  const encoding = detectTextEncoding(buffer)
+  if (isProbablyBinary(buffer, encoding)) {
+    throw new FluxFileError('UNSUPPORTED_FORMAT', 'Binary files are not supported')
+  }
+  const content = decodeText(buffer, encoding)
+  return {
+    filePath: path.resolve(filePath),
+    content,
+    encoding,
+    lineEnding: detectLineEnding(content),
+    version: getVersionFromBuffer(stat, buffer),
+    sampled: false,
+  }
+}
+
 function encodeText(content: string, encoding: TextEncoding): Buffer {
   const iconvEncoding = encoding === 'utf8-bom' ? 'utf8' : encoding
   const encoded = iconv.encode(content, iconvEncoding)

@@ -15,36 +15,35 @@
  */
 
 import type { Provider } from '../stores/settingsStore'
+import {
+  normalizeAnthropicBaseUrl,
+  normalizeOpenAiCompatibleBaseUrl,
+} from '../../../shared/provider-endpoints'
 
 /** Anthropic Messages API（含无日期别名与带日期的快照 id） */
 export const ANTHROPIC_MODEL_IDS = [
-  'claude-opus-4-7',
-  'claude-sonnet-4-6',
+  'claude-fable-5',
+  'claude-opus-5',
+  'claude-sonnet-5',
   'claude-haiku-4-5',
 ]
 
 /** OpenAI 官方兼容（api.openai.com 或默认 OpenAI 预设） */
 export const OPENAI_OFFICIAL_MODEL_IDS = [
+  'gpt-5.6',
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
   'gpt-5.5',
-  'gpt-4.1',
-  'gpt-4o',
-  'gpt-4o-mini',
-  'o4-mini',
 ]
 
 export const DEEPSEEK_MODEL_IDS = [
   'deepseek-v4-flash',
   'deepseek-v4-pro',
-  'deepseek-chat',
-  'deepseek-reasoner',
-  'deepseek-coder',
 ]
 
 export const KIMI_MODEL_IDS = [
   'kimi-k2-turbo',
-  'moonshot-v1-128k',
-  'moonshot-v1-32k',
-  'moonshot-v1-8k',
 ]
 
 export const GLM_MODEL_IDS = ['glm-4.6', 'glm-4-plus', 'glm-4-flash', 'glm-4-air']
@@ -55,6 +54,23 @@ export const QWEN_MODEL_IDS = [
   'qwen-turbo',
   'qwen-long',
 ]
+
+const RETIRED_MODEL_SUGGESTIONS = new Set([
+  'gpt-4.1',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'o4-mini',
+  'deepseek-chat',
+  'deepseek-reasoner',
+  'deepseek-coder',
+  'moonshot-v1-128k',
+  'moonshot-v1-32k',
+  'moonshot-v1-8k',
+])
+
+export function isRetiredModelSuggestion(modelId: string): boolean {
+  return RETIRED_MODEL_SUGGESTIONS.has(modelId)
+}
 
 export interface ProviderPresetConfig {
   label: string
@@ -69,7 +85,8 @@ export const PROVIDER_PRESETS: Record<string, ProviderPresetConfig> = {
   anthropic: {
     label: 'Anthropic',
     type: 'anthropic',
-    defaultModel: 'claude-opus-4-7',
+    baseUrl: 'https://api.anthropic.com',
+    defaultModel: 'claude-opus-5',
     modelIds: ANTHROPIC_MODEL_IDS,
   },
   openai: {
@@ -172,12 +189,45 @@ export function defaultModelForPresetKey(presetKey: string): string {
   return PROVIDER_PRESETS[presetKey]?.defaultModel ?? 'gpt-5.5'
 }
 
+/** Keep discovered custom models scoped to the protocol and endpoint that returned them. */
+export function providerModelOptionsKey(
+  presetKey: string,
+  type: Provider['type'],
+  baseUrl: string,
+): string {
+  if (presetKey !== 'custom') return presetKey
+  const normalized = type === 'openai_compat'
+    ? normalizeOpenAiCompatibleBaseUrl(baseUrl)
+    : normalizeAnthropicBaseUrl(baseUrl)
+  return `custom:${type}:${normalized.toLowerCase()}`
+}
+
+export function trustedProviderModelOptions(
+  options: Record<string, string[]>,
+  key: string,
+  trusted: boolean,
+): string[] {
+  return trusted ? options[key] ?? [] : []
+}
+
 /** 根据已保存提供商推断设置页「预设类型」键，避免重新进入设置时落回 anthropic */
 export function inferPresetKeyFromProvider(p: Provider | null): keyof typeof PROVIDER_PRESETS {
   if (!p) return 'anthropic'
-  if (p.type === 'anthropic') return 'anthropic'
-  if (p.type === 'anthropic_compat') return 'custom'
   const url = (p.baseUrl || '').trim().toLowerCase()
+  if (
+    p.name === PROVIDER_PRESETS.custom.label ||
+    p.name === 'Anthropic Native Messages' ||
+    p.name === 'Anthropic Messages' ||
+    p.name === 'OpenAI Chat Completions'
+  ) return 'custom'
+  const namedPreset = Object.entries(PROVIDER_PRESETS).find(
+    ([key, preset]) => key !== 'custom' && preset.label === p.name,
+  )
+  if (namedPreset) return namedPreset[0]
+  if (p.type === 'anthropic') {
+    return !url || url.includes('api.anthropic.com') ? 'anthropic' : 'custom'
+  }
+  if (p.type === 'anthropic_compat') return 'custom'
   if (!url || url.includes('api.openai.com')) return 'openai'
   if (url.includes('deepseek')) return 'deepseek'
   if (url.includes('moonshot')) return 'kimi'

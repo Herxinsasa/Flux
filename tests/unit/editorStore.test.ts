@@ -137,6 +137,19 @@ describe('useEditorStore', () => {
     })
   })
 
+  describe('beginDocumentLoad', () => {
+    it('keeps Markdown on the WYSIWYG surface while the snapshot is loading', () => {
+      useEditorStore.setState({ markdownEditSurface: 'source' })
+
+      useEditorStore.getState().beginDocumentLoad('C:\\docs\\readme.md')
+
+      const state = useEditorStore.getState()
+      expect(state.mode).toBe('markdown')
+      expect(state.markdownEditSurface).toBe('wysiwyg')
+      expect(state.documentSessions['c:/docs/readme.md']?.mode).toBe('markdown-read')
+    })
+  })
+
   describe('Markdown edit surface', () => {
     it('toggles only between live editing and source', () => {
       useEditorStore.getState().toggleMarkdownEditSurface()

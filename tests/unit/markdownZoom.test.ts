@@ -20,6 +20,9 @@ describe('Markdown content zoom', () => {
   it('maps the documented shortcuts and ignores unmodified keys', () => {
     expect(getMarkdownZoomAction({ ctrlKey: true, metaKey: false, key: '=' })).toBe('in')
     expect(getMarkdownZoomAction({ ctrlKey: true, metaKey: false, key: '-' })).toBe('out')
+    expect(getMarkdownZoomAction({ ctrlKey: true, metaKey: false, key: '_', code: 'Minus' })).toBe('out')
+    expect(getMarkdownZoomAction({ ctrlKey: true, metaKey: false, key: '+', code: 'Equal' })).toBe('in')
+    expect(getMarkdownZoomAction({ ctrlKey: true, metaKey: false, key: 'Subtract', code: 'NumpadSubtract' })).toBe('out')
     expect(getMarkdownZoomAction({ ctrlKey: false, metaKey: true, key: '0' })).toBe('reset')
     expect(getMarkdownZoomAction({ ctrlKey: false, metaKey: false, key: '=' })).toBeNull()
   })
@@ -47,13 +50,13 @@ describe('Markdown content zoom', () => {
   })
 
   it('clamps both zoom directions to the existing preference limits', () => {
-    useSettingsStore.getState().setReadingPreferences({ bodyFontSize: 24 })
+    useSettingsStore.getState().setReadingPreferences({ bodyFontSize: 40 })
     applyMarkdownZoomAction('in')
-    expect(useSettingsStore.getState().readingPreferences.bodyFontSize).toBe(24)
+    expect(useSettingsStore.getState().readingPreferences.bodyFontSize).toBe(40)
 
-    useSettingsStore.getState().setReadingPreferences({ bodyFontSize: 12 })
+    useSettingsStore.getState().setReadingPreferences({ bodyFontSize: 8 })
     applyMarkdownZoomAction('out')
-    expect(useSettingsStore.getState().readingPreferences.bodyFontSize).toBe(12)
+    expect(useSettingsStore.getState().readingPreferences.bodyFontSize).toBe(8)
   })
 
   it('lets zoom shrink below the legacy default without bouncing back', () => {
@@ -66,7 +69,7 @@ describe('Markdown content zoom', () => {
     applyMarkdownZoomAction('out')
     expect(useSettingsStore.getState().readingPreferences.bodyFontSize).toBe(12)
     applyMarkdownZoomAction('out')
-    expect(useSettingsStore.getState().readingPreferences.bodyFontSize).toBe(12)
+    expect(useSettingsStore.getState().readingPreferences.bodyFontSize).toBe(11)
   })
 
   it('migrates only persisted legacy values, leaving user-tuned sizes intact', () => {

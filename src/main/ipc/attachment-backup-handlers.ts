@@ -1,4 +1,5 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron'
+import type { SaveDialogOptions, SaveDialogReturnValue, WebContents } from 'electron'
 import path from 'path'
 import { IPC_CHANNELS } from '../../shared/ipc-channels'
 import type { IpcResponse } from '../../shared/types'
@@ -9,6 +10,11 @@ import { getBackupService } from '../services/backup-service'
 function responseError(error: unknown): IpcResponse {
   const candidate = error as { message?: string; code?: string }
   return { success: false, error: candidate?.message ?? String(error), code: candidate?.code as IpcResponse['code'] }
+}
+
+export function showBackupSaveDialog(sender: WebContents, options: SaveDialogOptions): Promise<SaveDialogReturnValue> {
+  const owner = BrowserWindow.fromWebContents(sender) ?? BrowserWindow.getFocusedWindow()
+  return owner ? dialog.showSaveDialog(owner, options) : dialog.showSaveDialog(options)
 }
 
 export function registerAttachmentBackupHandlers(): void {
@@ -31,11 +37,11 @@ export function registerAttachmentBackupHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.BACKUP_DISCARD, async (_event, snapshotId: string): Promise<IpcResponse> => {
     try { return { success: true, data: { discarded: await backupService.discard(snapshotId) } } } catch (error) { return responseError(error) }
   })
-  ipcMain.handle(IPC_CHANNELS.BACKUP_SAVE_AS, async (_event, request: SaveBackupAsRequest): Promise<IpcResponse> => {
+  ipcMain.handle(IPC_CHANNELS.BACKUP_SAVE_AS, async (event, request: SaveBackupAsRequest): Promise<IpcResponse> => {
     try {
       const snapshot = await backupService.read(request.snapshotId)
       if (!snapshot) return { success: false, error: 'Backup snapshot not found', code: 'NOT_FOUND' }
-      const selected = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow()!, {
+      const selected = await showBackupSaveDialog(event.sender, {
         title: '另存恢复内容', defaultPath: path.basename(snapshot.sourcePath),
       })
       if (selected.canceled || !selected.filePath) return { success: true, data: { cancelled: true } }

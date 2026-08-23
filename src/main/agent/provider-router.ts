@@ -1,6 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { MessageParam, Tool as AnthropicTool } from '@anthropic-ai/sdk/resources/messages/messages'
 import OpenAI from 'openai'
+import {
+  normalizeAnthropicBaseUrl,
+  normalizeOpenAiCompatibleBaseUrl,
+} from '../../shared/provider-endpoints'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions/completions'
 import store from '../store'
 import log from '../logger'
@@ -234,7 +238,7 @@ class AnthropicProvider implements ProviderClient {
     this.type = type
     this.client = new Anthropic({
       apiKey,
-      baseURL: baseUrl ?? (type === 'anthropic' ? undefined : baseUrl),
+      baseURL: baseUrl ? normalizeAnthropicBaseUrl(baseUrl) : undefined,
     })
   }
 
@@ -330,7 +334,7 @@ class OpenAIProvider implements ProviderClient {
   constructor(apiKey: string, baseUrl?: string) {
     this.client = new OpenAI({
       apiKey,
-      baseURL: baseUrl ?? 'https://api.openai.com/v1',
+      baseURL: normalizeOpenAiCompatibleBaseUrl(baseUrl),
     })
   }
 
@@ -437,7 +441,7 @@ export function createClient(providerId: string): ProviderClient {
 
   switch (config.type) {
     case 'anthropic':
-      return new AnthropicProvider('anthropic', apiKey)
+      return new AnthropicProvider('anthropic', apiKey, baseUrl)
     case 'anthropic_compat':
       return new AnthropicProvider('anthropic_compat', apiKey, baseUrl)
     case 'openai_compat':

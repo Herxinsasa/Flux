@@ -9,7 +9,10 @@ import {
   defaultModelForPresetKey,
   getModelIdsForSettings,
   inferPresetKeyFromProvider,
+  isRetiredModelSuggestion,
   mergeCurrentModelOption,
+  providerModelOptionsKey,
+  trustedProviderModelOptions,
 } from '../../config/providerModels'
 import { SettingsToast, type SettingsToastState } from './SettingsToast'
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
@@ -75,6 +78,12 @@ function getProtocolLabel(type: Provider['type']): string {
   return 'Anthropic Messages'
 }
 
+function defaultBaseUrlForType(type: Provider['type'], presetBaseUrl?: string): string {
+  if (presetBaseUrl) return presetBaseUrl
+  if (type === 'anthropic') return 'https://api.anthropic.com'
+  return ''
+}
+
 export function SettingsView({ onBack }: SettingsViewProps) {
   const providers = useSettingsStore((s) => s.providers)
   const setProviders = useSettingsStore((s) => s.setProviders)
@@ -101,6 +110,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   const [model, setModel] = useState('')
   const [modelOpen, setModelOpen] = useState(false)
   const [remoteModels, setRemoteModels] = useState<string[]>([])
+  const [persistedModelsTrusted, setPersistedModelsTrusted] = useState(true)
   const [refreshingModels, setRefreshingModels] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [customProviderType, setCustomProviderType] = useState<Provider['type']>('openai_compat')
@@ -108,6 +118,13 @@ export function SettingsView({ onBack }: SettingsViewProps) {
   const [toast, setToast] = useState<SettingsToastState | null>(null)
   const prevSavedIdRef = useRef<string | null | undefined>(undefined)
   const modelRequestRef = useRef(0)
+
+  const invalidateRemoteModels = useCallback(() => {
+    modelRequestRef.current += 1
+    setRefreshingModels(false)
+    setRemoteModels([])
+    setPersistedModelsTrusted(false)
+  }, [])
 
   // Load catalog
   useEffect(() => {
@@ -145,6 +162,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       setApiKey(activeProvider.apiKey)
       setBaseUrl(activeProvider.baseUrl ?? '')
       setModel(activeProvider.model)
+      setPersistedModelsTrusted(true)
       setDirty(false)
       return
     }
@@ -165,25 +183,27 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       setProviders([])
       setActiveProvider(null)
       setPresetKey(k)
-      modelRequestRef.current += 1
-      setRefreshingModels(false)
-      setRemoteModels([])
+      invalidateRemoteModels()
       const p = PROVIDER_PRESETS[k]
       setCustomProviderType(p.type)
       setBaseUrl(p.baseUrl ?? '')
       setModel(defaultModelForPresetKey(k))
       setDirty(true)
     },
-    [setProviders, setActiveProvider],
+    [invalidateRemoteModels, setProviders, setActiveProvider],
   )
 
   const currentPreset = PROVIDER_PRESETS[presetKey]
   const showProtocolSelector = true
   const selectedProviderType: Provider['type'] = customProviderType
-  const selectedProviderName =
-    presetKey === 'custom' ? getProtocolLabel(selectedProviderType) : currentPreset.label
-  const showBaseUrl = selectedProviderType !== 'anthropic'
-  const persistedModels = providerModelOptions[presetKey] ?? []
+  const selectedProviderName = currentPreset.label
+  const modelOptionsKey = providerModelOptionsKey(presetKey, selectedProviderType, baseUrl)
+  const persistedModels = trustedProviderModelOptions(
+    providerModelOptions,
+    modelOptionsKey,
+    persistedModelsTrusted,
+  )
+    .filter((modelId) => !isRetiredModelSuggestion(modelId))
 
   const modelOptions = useMemo(() => {
     if (remoteModels.length > 0) return mergeCurrentModelOption(model, remoteModels)
@@ -193,7 +213,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       const provider = catalog.providers.find((p) => p.id === presetKey)
       if (provider) {
         const catalogModels = provider.models
-          .filter((m) => m.status === 'active')
+          .filter((m) => m.status === 'active' && !isRetiredModelSuggestion(m.id))
             .map((m) => m.id)
         return mergeCurrentModelOption(model, catalogModels)
       }
@@ -234,10 +254,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         type: selectedProviderType,
         apiKey: apiKey.trim(),
         model,
-        baseUrl:
-          selectedProviderType === 'anthropic'
-            ? undefined
-            : baseUrl.trim() || currentPreset.baseUrl || undefined,
+        baseUrl: baseUrl.trim() || defaultBaseUrlForType(selectedProviderType, currentPreset.baseUrl) || undefined,
       }
       const r = await testConnection(providerForTest)
       if (r.success) {
@@ -245,7 +262,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       } else {
         setToast({ variant: 'error', message: '连接失败，请检查配置' })
       }
-    } catch (e) {
+    } catch {
       setToast({ variant: 'error', message: '连接失败，请检查配置' })
     }
   }, [activeProvider, apiKey, baseUrl, model, testConnection, currentPreset, selectedProviderName, selectedProviderType])
@@ -254,10 +271,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     try {
       const trimmedApiKey = apiKey.trim()
       const trimmedModel = model.trim()
-      const effectiveBaseUrl =
-        selectedProviderType === 'anthropic'
-          ? undefined
-          : (baseUrl.trim() || currentPreset.baseUrl || '').trim()
+      const effectiveBaseUrl = (baseUrl.trim() || defaultBaseUrlForType(selectedProviderType, currentPreset.baseUrl)).trim()
 
       if (!trimmedApiKey) {
         setToast({ variant: 'error', message: '请先填写 API Key' })
@@ -267,8 +281,8 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         setToast({ variant: 'error', message: '请先填写模型' })
         return
       }
-      if (selectedProviderType === 'anthropic_compat' && !effectiveBaseUrl) {
-        setToast({ variant: 'error', message: 'Anthropic 兼容协议请先填写请求地址' })
+      if ((selectedProviderType === 'anthropic' || selectedProviderType === 'anthropic_compat') && !effectiveBaseUrl) {
+        setToast({ variant: 'error', message: 'Anthropic Messages 协议请先填写请求地址' })
         return
       }
 
@@ -279,14 +293,12 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         type: selectedProviderType,
         apiKey: trimmedApiKey,
         model: trimmedModel,
-        baseUrl: selectedProviderType === 'anthropic' ? undefined : effectiveBaseUrl || undefined,
+        baseUrl: effectiveBaseUrl || undefined,
       }
-      if (presetKey !== 'custom') {
-        setProviderModelOptions({
-          ...useSettingsStore.getState().providerModelOptions,
-          [presetKey]: remoteModels.length > 0 ? remoteModels : modelOptions,
-        })
-      }
+      setProviderModelOptions({
+        ...useSettingsStore.getState().providerModelOptions,
+        [modelOptionsKey]: remoteModels.length > 0 ? remoteModels : modelOptions,
+      })
       setProviders([next])
       setActiveProvider(id)
       setDirty(false)
@@ -305,7 +317,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     model,
     save,
     currentPreset,
-    presetKey,
+    modelOptionsKey,
     selectedProviderName,
     selectedProviderType,
     setProviders,
@@ -319,10 +331,6 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     model || activeProvider?.model || currentPreset.defaultModel || defaultModelForPresetKey('anthropic')
 
   const refreshModels = useCallback(async () => {
-    if (presetKey === 'custom') {
-      setToast({ variant: 'error', message: '自定义供应商暂不支持在线获取模型列表' })
-      return
-    }
     if (!apiKey.trim()) {
       setToast({ variant: 'error', message: '请先填写 API Key' })
       return
@@ -332,8 +340,10 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     modelRequestRef.current = requestId
     try {
       const response = await window.electronAPI.settings.listModels({
-        presetKey: presetKey as 'anthropic' | 'openai' | 'deepseek' | 'kimi' | 'glm' | 'qwen',
+        presetKey: presetKey as 'anthropic' | 'openai' | 'deepseek' | 'kimi' | 'glm' | 'qwen' | 'custom',
         apiKey: apiKey.trim(),
+        type: selectedProviderType,
+        baseUrl: baseUrl.trim() || currentPreset.baseUrl,
       })
       if (!response.success || !response.data) {
         if (modelRequestRef.current !== requestId) return
@@ -342,6 +352,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       }
       if (modelRequestRef.current !== requestId) return
       setRemoteModels(response.data.models)
+      setPersistedModelsTrusted(true)
       setModelOpen(true)
       setToast({ variant: 'success', message: `已获取 ${response.data.models.length} 个模型` })
     } catch {
@@ -350,7 +361,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
     } finally {
       if (modelRequestRef.current === requestId) setRefreshingModels(false)
     }
-  }, [apiKey, presetKey])
+  }, [apiKey, baseUrl, currentPreset.baseUrl, presetKey, selectedProviderType])
 
   const clearCurrentConversation = useCallback(() => {
     useSessionContextStore.getState().resetConversationContext()
@@ -417,7 +428,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                 onClick={() => setPresetOpen(!presetOpen)}
                 className="flux-dropdown-trigger"
               >
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
                   {currentPreset.label}
                 </span>
                 <ChevronDown size={16} aria-hidden />
@@ -449,7 +460,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                   onClick={() => setProtocolOpen(!protocolOpen)}
                   className="flux-dropdown-trigger"
                 >
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
                     {getProtocolLabel(customProviderType)}
                   </span>
                   <ChevronDown size={16} aria-hidden />
@@ -465,6 +476,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                           className="context-menu-item"
                           onClick={() => {
                             setCustomProviderType(opt.value)
+                            invalidateRemoteModels()
                             setProtocolOpen(false)
                             setDirty(true)
                           }}
@@ -477,7 +489,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                           }}
                         >
                           <span>{opt.label}</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-tertiary)' }}>
+                          <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text-tertiary)' }}>
                             {opt.endpointHint}
                           </span>
                         </div>
@@ -510,6 +522,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                 value={apiKey}
                 onChange={(e) => {
                   setApiKey(e.target.value)
+                  invalidateRemoteModels()
                   setDirty(true)
                 }}
                 placeholder="粘贴或输入 API Key（已保存的密钥可在此覆盖）"
@@ -521,7 +534,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                   background: 'transparent',
                   border: 'none',
                   outline: 'none',
-                  fontFamily: 'var(--font-mono)',
+                  fontFamily: 'var(--font-ui)',
                   fontSize: 14,
                   fontWeight: 400,
                   color: 'var(--text-primary)',
@@ -550,7 +563,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
             </div>
           </div>
 
-          {/* ── 3. Base URL（设计稿始终可见；非兼容类预设只读展示官方地址） ── */}
+          {/* ── 3. Base URL ── */}
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-ui)', color: 'var(--text-primary)', marginBottom: 8 }}>
               请求地址
@@ -565,37 +578,25 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                 border: '1px solid var(--settings-stroke, var(--border-subtle))',
               }}
             >
-              {showBaseUrl ? (
-                <input
-                  value={baseUrl}
-                  onChange={(e) => {
-                    setBaseUrl(e.target.value)
-                    setDirty(true)
-                  }}
-                  placeholder={currentPreset.baseUrl || 'https://'}
-                  style={{
-                    width: '100%',
-                    minWidth: 0,
-                    background: 'transparent',
-                    border: 'none',
-                    outline: 'none',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 14,
-                    color: 'var(--text-secondary)',
-                  }}
-                />
-              ) : (
-                <span
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 14,
-                    fontWeight: 400,
-                    color: 'var(--text-secondary)',
-                  }}
-                >
-                  https://api.anthropic.com
-                </span>
-              )}
+              <input
+                value={baseUrl}
+                onChange={(e) => {
+                  setBaseUrl(e.target.value)
+                  invalidateRemoteModels()
+                  setDirty(true)
+                }}
+                placeholder={defaultBaseUrlForType(selectedProviderType, currentPreset.baseUrl) || 'https://'}
+                style={{
+                  width: '100%',
+                  minWidth: 0,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  fontFamily: 'var(--font-ui)',
+                  fontSize: 14,
+                  color: 'var(--text-secondary)',
+                }}
+              />
             </div>
           </div>
 
@@ -603,21 +604,26 @@ export function SettingsView({ onBack }: SettingsViewProps) {
           <div>
             <div className="flux-settings-label-row">
               <span>默认模型</span>
-              <button type="button" className="flux-settings-icon-btn" title="获取模型列表" disabled={refreshingModels || presetKey === 'custom'} onClick={() => void refreshModels()}>
+              <button type="button" className="flux-settings-icon-btn" title="获取模型列表" disabled={refreshingModels} onClick={() => void refreshModels()}>
                 <RefreshCw size={16} className={refreshingModels ? 'spin' : undefined} aria-hidden />
               </button>
             </div>
             <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => setModelOpen(!modelOpen)}
-                className="flux-dropdown-trigger"
-              >
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 400, color: 'var(--text-primary)' }}>
-                  {displayModel}
-                </span>
-                <ChevronDown size={16} aria-hidden />
-              </button>
+              <div className="flux-model-combobox">
+                <input
+                  value={model}
+                  placeholder={displayModel}
+                  onChange={(event) => {
+                    setModel(event.target.value)
+                    setDirty(true)
+                  }}
+                  aria-label="默认模型"
+                  spellCheck={false}
+                />
+                <button type="button" title="选择模型" onClick={() => setModelOpen((value) => !value)}>
+                  <ChevronDown size={16} aria-hidden />
+                </button>
+              </div>
               {modelOpen && (
                 <>
                   <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setModelOpen(false)} />
@@ -634,7 +640,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
                           setModelOpen(false)
                           setDirty(true)
                         }}
-                        style={{ fontWeight: m === model ? 600 : 400, fontFamily: 'var(--font-mono)', fontSize: 13 }}
+                        style={{ fontWeight: m === model ? 600 : 400, fontFamily: 'var(--font-ui)', fontSize: 13 }}
                       >
                         {m}
                       </div>
@@ -666,15 +672,17 @@ export function SettingsView({ onBack }: SettingsViewProps) {
               {advancedOpen ? <ChevronDown size={17} /> : <ChevronRight size={17} />}<span>高级设置</span>
             </button>
             {advancedOpen && <div className="flux-settings-advanced-body">
-              <h2>AI 助手</h2>
-              <div className="flux-settings-data-row"><span>本次对话</span><button type="button" onClick={clearCurrentConversation} className="flux-btn-secondary">清空当前对话</button></div>
-              <p className="flux-settings-save-note">Flux 默认只保留本次运行内的 AI 对话，重启后不恢复历史。</p>
-              <h2>系统集成</h2>
-              <div className="flux-settings-data-row">
-                <span>Markdown/文本/日志默认打开方式</span>
-                <button type="button" className="flux-btn-secondary" onClick={() => void window.electronAPI.shell.openExternal('ms-settings:defaultapps')}>设为默认应用</button>
+              <div className="flux-settings-advanced-group">
+                <h2>AI 助手</h2>
+                <div className="flux-settings-data-row"><span>本次对话</span><button type="button" onClick={clearCurrentConversation} className="flux-btn-secondary">清空当前对话</button></div>
               </div>
-              <p className="flux-settings-save-note">点击后打开 Windows 默认应用设置，选择 Flux 作为对应文件类型的默认打开方式；双击文档时 Flux 会自动加载所在文件夹并打开文档。</p>
+              <div className="flux-settings-advanced-group">
+                <h2>系统集成</h2>
+                <div className="flux-settings-data-row">
+                  <span>Markdown/文本/日志默认打开方式</span>
+                  <button type="button" className="flux-btn-secondary" onClick={() => void window.electronAPI.shell.openExternal('ms-settings:defaultapps')}>设为默认应用</button>
+                </div>
+              </div>
             </div>}
           </section>
 

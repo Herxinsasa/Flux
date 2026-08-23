@@ -50,7 +50,12 @@ vi.mock('@milkdown/kit/plugin/clipboard', () => ({ clipboard: {} }))
 vi.mock('@milkdown/kit/plugin/history', () => ({ history: {} }))
 vi.mock('@milkdown/kit/plugin/listener', () => ({ listener: {}, listenerCtx: {} }))
 vi.mock('@milkdown/kit/plugin/trailing', () => ({ trailing: {} }))
-vi.mock('@milkdown/kit/utils', () => ({ replaceAll, callCommand: vi.fn((key: string) => ({ key })), $prose: vi.fn((factory: unknown) => factory) }))
+vi.mock('@milkdown/kit/utils', () => ({
+  replaceAll,
+  callCommand: vi.fn((key: string) => ({ key })),
+  $prose: vi.fn((factory: unknown) => factory),
+  $remark: vi.fn(() => ({})),
+}))
 
 describe('MdWysiwygEditor', () => {
   beforeEach(() => {
@@ -67,14 +72,36 @@ describe('MdWysiwygEditor', () => {
     expect(editorInstances).toHaveLength(1)
   })
 
+  it('centers the zoomed editing surface and scales code with the document', async () => {
+    const { container } = render(<MdWysiwygEditor fileKey="note.md" onMarkdownCommit={vi.fn()} theme="light" contentZoom={2} />)
+    await waitFor(() => expect(editorInstances[0]?.create).toHaveBeenCalled())
+
+    const root = container.querySelector<HTMLElement>('.flux-milkdown-root')
+    expect(root?.style.width).toBe('50%')
+    expect(root?.style.left).toBe('50%')
+    expect(root?.style.transform).toBe('translateX(-50%)')
+    expect(root?.style.getPropertyValue('--font-code-size')).toBe('13px')
+  })
+
   it('commits the complete Markdown emitted after editing or Markdown paste', async () => {
     const onMarkdownCommit = vi.fn()
     render(<MdWysiwygEditor fileKey="note.md" onMarkdownCommit={onMarkdownCommit} theme="light" />)
     await waitFor(() => expect(editorInstances[0]?.markdownListener).toBeTypeOf('function'))
 
+    act(() => useEditorStore.setState({ isDirty: true }))
     act(() => editorInstances[0]?.markdownListener?.({}, '## 粘贴标题\n\n- 项目\n- 项目二'))
 
     expect(onMarkdownCommit).toHaveBeenCalledWith('## 粘贴标题\n\n- 项目\n- 项目二')
+  })
+
+  it('does not mark a clean document dirty from editor initialization normalization', async () => {
+    const onMarkdownCommit = vi.fn()
+    render(<MdWysiwygEditor fileKey="note.md" onMarkdownCommit={onMarkdownCommit} theme="light" />)
+    await waitFor(() => expect(editorInstances[0]?.markdownListener).toBeTypeOf('function'))
+
+    act(() => editorInstances[0]?.markdownListener?.({}, '# 完整正文\n\n最后一段\n'))
+
+    expect(onMarkdownCommit).not.toHaveBeenCalled()
   })
 
   it('replaces the whole document when disk hydration changes', async () => {

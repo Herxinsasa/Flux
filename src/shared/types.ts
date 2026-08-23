@@ -17,6 +17,7 @@ export type FluxErrorCode =
   | 'VERSION_CONFLICT'
   | 'INVALID_DATA'
   | 'CANCELLED'
+  | 'TIMEOUT'
   | 'QUOTA_EXCEEDED'
   | 'IO_ERROR';
 
@@ -55,6 +56,8 @@ export interface SaveTextResult {
 export interface WorkspaceFileEntry {
   path: string;
   relativePath: string;
+  /** 旧版未携带 kind，缺省时按文件处理。 */
+  kind?: 'file' | 'directory';
 }
 
 export interface TaskStartData {

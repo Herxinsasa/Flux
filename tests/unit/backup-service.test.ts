@@ -1,7 +1,7 @@
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BackupService } from '../../src/main/services/backup-service'
 import { createHash } from 'crypto'
 
@@ -49,5 +49,26 @@ describe('BackupService', () => {
     const snapshot = await service.create({ sourcePath: source, content: 'saved draft', sourceVersion: await fileVersion(source) })
     await fs.writeFile(source, 'saved draft')
     expect(await service.findRecoveryCandidates(source)).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: snapshot.id })]))
+  })
+
+  it('reads each source file once while checking multiple recovery snapshots', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-backup-')); roots.push(root)
+    const source = path.join(root, 'a.md')
+    await fs.writeFile(source, 'disk')
+    const sourceVersion = await fileVersion(source)
+    const sourceReader = vi.fn(async () => ({
+      filePath: source,
+      content: 'disk',
+      encoding: 'utf8' as const,
+      lineEnding: 'lf' as const,
+      version: sourceVersion,
+      sampled: false,
+    }))
+    const service = new BackupService({ rootDir: root, sourceReader })
+    await service.create({ sourcePath: source, content: 'draft one', sourceVersion })
+    await service.create({ sourcePath: source, content: 'draft two', sourceVersion })
+
+    expect(await service.findRecoveryCandidates(source)).toHaveLength(2)
+    expect(sourceReader).toHaveBeenCalledTimes(1)
   })
 })

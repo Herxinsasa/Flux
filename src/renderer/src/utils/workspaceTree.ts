@@ -58,7 +58,7 @@ function insertWorkspaceFile(root: ChildList, file: WorkspaceFileEntry): void {
     const part = parts[i]
     const isLast = i === parts.length - 1
     const pathKey = parts.slice(0, i + 1).join('/')
-    if (!isLast) {
+    if (!isLast || file.kind === 'directory') {
       parent = findOrCreateDir(parent, part, pathKey)
       continue
     }

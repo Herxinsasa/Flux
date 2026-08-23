@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   Editor,
   defaultValueCtx,
@@ -30,15 +30,17 @@ import { normalizeDocumentPath, useEditorStore } from '../../stores/editorStore'
 import { useFileStore } from '../../stores/fileStore'
 import { useLayoutStore } from '../../stores/layoutStore'
 import { useReviewStore } from '../../stores/reviewStore'
-import { useSettingsStore } from '../../stores/settingsStore'
+import { DEFAULT_READING_PREFERENCES, useSettingsStore } from '../../stores/settingsStore'
 import { MarkdownContextMenu } from './MarkdownContextMenu'
 import type { MarkdownCommandId } from './sourceMarkdownCommands'
 import { WysiwygReviewComposer } from './WysiwygReviewComposer'
 import { WysiwygSearchPanel, wysiwygSearchPlugin } from './WysiwygSearchPanel'
 import { wysiwygMarkdownInputAssist } from './wysiwygMarkdownInputAssist'
+import { createWysiwygTaskListPlugin, emptyTaskListRemarkPlugin } from './wysiwygTaskList'
 import { runWysiwygMarkdownCommand } from './wysiwygMarkdownCommands'
 import { resolveSerializedReviewAnchor } from './wysiwygReviewAnchor'
-import { mermaidCodeBlockView } from './mermaidCodeBlockView'
+import { mermaidCodeBlockView, refreshMermaidCodeBlockViews } from './mermaidCodeBlockView'
+import { wysiwygCodeBlockHighlight } from './wysiwygCodeBlockHighlight'
 import { frontmatterNode, registerFrontmatterParsing, registerFrontmatterStringify } from './frontmatterNode'
 import {
   haveWysiwygReviewDecorationsChanged,
@@ -52,6 +54,8 @@ interface MdWysiwygEditorProps {
   fileKey: string
   onMarkdownCommit: (markdown: string) => void
   theme: 'light' | 'dark'
+  contentZoom?: number
+  codeFontSize?: number
   outlineTarget?: {
     level: number
     text: string
@@ -100,7 +104,14 @@ function headingTextFromNode(node: ProseMirrorNode): string {
 }
 
 /** Markdown-first live editor. The store remains the source of truth for saving. */
-function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget }: MdWysiwygEditorProps) {
+function MdWysiwygEditorInner({
+  fileKey,
+  onMarkdownCommit,
+  theme,
+  contentZoom = 1,
+  codeFontSize = DEFAULT_READING_PREFERENCES.codeFontSize,
+  outlineTarget,
+}: MdWysiwygEditorProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<MilkdownEditor | null>(null)
   /** 已创建完成的 editorView；editor 在 create 前/销毁后不可用，统一走此引用避免 .doc 崩溃 */
@@ -108,6 +119,7 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
   /** 批注高亮订阅（view 就绪后注册，卸载时移除） */
   const unsubscribeReviewRef = useRef<(() => void) | undefined>(undefined)
   const onCommitRef = useRef(onMarkdownCommit)
+  const userEditRef = useRef(false)
   const currentFile = useFileStore((state) => state.currentFile)
   const currentFileName = useFileStore((state) => {
     const file = state.files.find((item) => item.path === state.currentFile)
@@ -166,6 +178,10 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
     let unsubscribeStore: (() => void) | undefined
     let scrollContainer: HTMLElement | null = null
     let lastMarkdown = useEditorStore.getState().content
+    let hydratingMarkdown = true
+    const markUserEdit = () => {
+      userEditRef.current = true
+    }
     const saveSurfaceState = () => {
       const view = viewRef.current
       const currentScrollContainer = getEditorScrollContainer(root)
@@ -193,6 +209,9 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
       })
     }
 
+    const taskListPlugin = createWysiwygTaskListPlugin(() => {
+      userEditRef.current = true
+    })
     const editor = Editor.make()
       .config((ctx) => {
         ctx.set(rootCtx, root)
@@ -212,6 +231,10 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
         })
         ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
           if (disposed || markdown === lastMarkdown) return
+          if (hydratingMarkdown || (!userEditRef.current && !useEditorStore.getState().isDirty)) {
+            lastMarkdown = markdown
+            return
+          }
           lastMarkdown = markdown
           onCommitRef.current(markdown)
         })
@@ -220,14 +243,18 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
         registerFrontmatterParsing(ctx)
         registerFrontmatterStringify(ctx)
       })
+      // 任务列表键盘处理需先于 commonmark 的通用列表 Enter 快捷键注册。
+      .use(taskListPlugin)
       .use(commonmark)
       .use(gfm)
+      .use(emptyTaskListRemarkPlugin)
       .use(tableBlock)
       .use(listener)
       .use(history)
       .use(clipboard)
       .use(trailing)
       .use(mermaidCodeBlockView)
+      .use(wysiwygCodeBlockHighlight)
       .use(frontmatterNode)
       .use(wysiwygReviewDecorations)
       .use(wysiwygSearchPlugin)
@@ -237,6 +264,8 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
     void editor.create()
       .then(() => {
         if (disposed) return
+        hydratingMarkdown = false
+        lastMarkdown = useEditorStore.getState().content
         try {
           viewRef.current = editor.ctx.get(editorViewCtx)
         } catch {
@@ -250,6 +279,10 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
           root.addEventListener('keyup', saveSurfaceState)
           root.addEventListener('mouseup', saveSurfaceState)
           root.addEventListener('focusout', saveSurfaceState)
+          root.addEventListener('beforeinput', markUserEdit)
+          root.addEventListener('keydown', markUserEdit)
+          root.addEventListener('paste', markUserEdit)
+          root.addEventListener('drop', markUserEdit)
           scrollContainer?.addEventListener('scroll', saveSurfaceState, { passive: true })
         }
         unsubscribeStore = useEditorStore.subscribe((state, previousState) => {
@@ -285,6 +318,10 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
       root.removeEventListener('keyup', saveSurfaceState)
       root.removeEventListener('mouseup', saveSurfaceState)
       root.removeEventListener('focusout', saveSurfaceState)
+      root.removeEventListener('beforeinput', markUserEdit)
+      root.removeEventListener('keydown', markUserEdit)
+      root.removeEventListener('paste', markUserEdit)
+      root.removeEventListener('drop', markUserEdit)
       scrollContainer?.removeEventListener('scroll', saveSurfaceState)
       disposed = true
       unsubscribeStore?.()
@@ -296,6 +333,11 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
       void editor.destroy()
     }
   }, [fileKey])
+
+  useEffect(() => {
+    if (!viewReady) return
+    refreshMermaidCodeBlockViews(theme === 'dark' ? 'dark' : 'default')
+  }, [theme, viewReady])
 
   const refreshTableTools = useCallback(() => {
     const root = rootRef.current
@@ -332,6 +374,7 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
   const runTableCommand = useCallback((command: 'add-row' | 'remove-row' | 'add-column' | 'remove-column' | 'left' | 'center' | 'right') => {
     const editor = editorRef.current
     if (!editor) return
+    userEditRef.current = true
     if (command === 'add-row') editor.action(callCommand(addRowAfterCommand.key))
     else if (command === 'add-column') editor.action(callCommand(addColAfterCommand.key))
     else if (command === 'left' || command === 'center' || command === 'right') {
@@ -491,6 +534,7 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
       return
     }
 
+    userEditRef.current = true
     runWysiwygMarkdownCommand(editor, command)
   }, [aiConfigured, contextMenu, currentFileName])
 
@@ -504,7 +548,19 @@ function MdWysiwygEditorInner({ fileKey, onMarkdownCommit, theme, outlineTarget 
       {searchOpen && viewRef.current && (
         <WysiwygSearchPanel view={viewRef.current} onClose={() => setSearchOpen(false)} />
       )}
-      <div ref={rootRef} className="flux-milkdown-root" />
+      <div
+        ref={rootRef}
+        className="flux-milkdown-root"
+        style={{
+          width: `${100 / contentZoom}%`,
+          position: 'relative',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zoom: contentZoom,
+          fontSize: `${DEFAULT_READING_PREFERENCES.bodyFontSize}px`,
+          '--font-code-size': `${codeFontSize}px`,
+        } as CSSProperties}
+      />
       {tableTools && <div className="flux-table-toolbar" contentEditable={false} style={{ left: tableTools.left, top: tableTools.top }} onMouseDown={(event) => event.preventDefault()}>
         <button type="button" title="调整行列数量" aria-expanded={tableSizeOpen} onClick={() => setTableSizeOpen((value) => !value)}><TableProperties size={16} /></button>
         <button type="button" title="左对齐" onClick={() => runTableCommand('left')}><AlignLeft size={16} /></button>

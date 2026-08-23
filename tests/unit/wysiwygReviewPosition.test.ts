@@ -56,4 +56,22 @@ describe('WYSIWYG review position mapping', () => {
     expect(range).not.toBeNull()
     expect(doc.textBetween(range!.from, range!.to)).toBe('重点')
   })
+
+  it('keeps non-HTML angle placeholders when locating long review quotes', () => {
+    const quote = '各类事实分别维护：需求规格保存业务预期，影响面保存真实范围，详细设计保存技术契约，开发计划保存任务与验证当前状态，审查和构建凭据证明最终代码质量，`progress.json` 只负责恢复导航。UI 原型按需写入 `docs/05-UI/原型/<迭代ID>/`。'
+    const doc = schema.node('doc', null, [
+      schema.node('paragraph', null, [
+        schema.text('各类事实分别维护：需求规格保存业务预期，影响面保存真实范围，详细设计保存技术契约，开发计划保存任务与验证当前状态，审查和构建凭据证明最终代码质量，'),
+        schema.text('progress.json', [schema.marks.inlineCode.create()]),
+        schema.text(' 只负责恢复导航。UI 原型按需写入 '),
+        schema.text('docs/05-UI/原型/<迭代ID>/', [schema.marks.inlineCode.create()]),
+        schema.text('。'),
+      ]),
+    ])
+
+    const range = findTextRangeInProseMirror(doc, quote)
+
+    expect(range).not.toBeNull()
+    expect(doc.textBetween(range!.from, range!.to)).toContain('docs/05-UI/原型/<迭代ID>/')
+  })
 })

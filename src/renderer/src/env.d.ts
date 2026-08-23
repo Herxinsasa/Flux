@@ -74,8 +74,10 @@ declare global {
           model: string
         }) => Promise<{ success: boolean; error?: string }>
         listModels: (config: {
-          presetKey: 'anthropic' | 'openai' | 'deepseek' | 'kimi' | 'glm' | 'qwen'
+          presetKey: 'anthropic' | 'openai' | 'deepseek' | 'kimi' | 'glm' | 'qwen' | 'custom'
           apiKey: string
+          type: 'anthropic' | 'anthropic_compat' | 'openai_compat'
+          baseUrl?: string
         }) => Promise<{ success: boolean; data?: { models: string[] }; error?: string }>
         workspaceVerify: (
           workspaceRoot: string,

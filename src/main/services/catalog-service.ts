@@ -13,10 +13,11 @@ const BUILTIN_CATALOG: ProvidersCatalog = {
       label: 'Anthropic',
       type: 'anthropic',
       baseUrl: 'https://api.anthropic.com',
-      defaultModel: 'claude-opus-4-7',
+      defaultModel: 'claude-opus-5',
       models: [
-        { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', status: 'active' },
-        { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', status: 'active' },
+        { id: 'claude-fable-5', label: 'Claude Fable 5', status: 'active' },
+        { id: 'claude-opus-5', label: 'Claude Opus 5', status: 'active' },
+        { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', status: 'active' },
         { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', status: 'active' },
       ],
     },
@@ -27,11 +28,11 @@ const BUILTIN_CATALOG: ProvidersCatalog = {
       baseUrl: '',
       defaultModel: 'gpt-5.5',
       models: [
+        { id: 'gpt-5.6', label: 'GPT 5.6', status: 'active' },
+        { id: 'gpt-5.6-sol', label: 'GPT 5.6 Sol', status: 'active' },
+        { id: 'gpt-5.6-terra', label: 'GPT 5.6 Terra', status: 'active' },
+        { id: 'gpt-5.6-luna', label: 'GPT 5.6 Luna', status: 'active' },
         { id: 'gpt-5.5', label: 'GPT 5.5', status: 'active' },
-        { id: 'gpt-4.1', label: 'GPT 4.1', status: 'active' },
-        { id: 'gpt-4o', label: 'GPT 4o', status: 'active' },
-        { id: 'gpt-4o-mini', label: 'GPT 4o mini', status: 'active' },
-        { id: 'o4-mini', label: 'o4 mini', status: 'active' },
       ],
     },
     {
@@ -43,9 +44,6 @@ const BUILTIN_CATALOG: ProvidersCatalog = {
       models: [
         { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', status: 'active' },
         { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', status: 'active' },
-        { id: 'deepseek-chat', label: 'DeepSeek Chat', status: 'active' },
-        { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', status: 'active' },
-        { id: 'deepseek-coder', label: 'DeepSeek Coder', status: 'active' },
       ],
     },
     {
@@ -56,9 +54,6 @@ const BUILTIN_CATALOG: ProvidersCatalog = {
       defaultModel: 'kimi-k2-turbo',
       models: [
         { id: 'kimi-k2-turbo', label: 'Kimi K2 Turbo', status: 'active' },
-        { id: 'moonshot-v1-128k', label: 'Moonshot v1 128k', status: 'active' },
-        { id: 'moonshot-v1-32k', label: 'Moonshot v1 32k', status: 'active' },
-        { id: 'moonshot-v1-8k', label: 'Moonshot v1 8k', status: 'active' },
       ],
     },
     {

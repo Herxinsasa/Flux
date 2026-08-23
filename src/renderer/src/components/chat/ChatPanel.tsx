@@ -237,6 +237,7 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
   const mentionFiles = useMemo(() => {
     const map = new Map<string, { path: string; name: string }>()
     for (const w of workspaceFiles) {
+      if (w.kind === 'directory') continue
       const name = w.relativePath || w.path.split(/[/\\]/).pop() || w.path
       map.set(w.path, { path: w.path, name })
     }

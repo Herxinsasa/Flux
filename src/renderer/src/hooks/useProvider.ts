@@ -88,7 +88,7 @@ export function useProvider(): UseProviderReturn {
           type: s.type,
           apiKey: prev?.apiKey ?? '',
           model: s.model,
-          baseUrl: s.type === 'anthropic' ? undefined : s.baseUrl || undefined,
+          baseUrl: s.baseUrl || undefined,
         },
       ])
       setActiveProvider(id)
@@ -135,7 +135,7 @@ export function useProvider(): UseProviderReturn {
         model: presetModels[type],
       }
 
-      if (type !== 'anthropic' && baseUrl) {
+      if (baseUrl) {
         provider.baseUrl = baseUrl
       } else if (type !== 'anthropic') {
         provider.baseUrl = ''

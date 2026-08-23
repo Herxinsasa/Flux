@@ -12,6 +12,7 @@ export function isMermaidLanguage(language: string | undefined | null): boolean 
 
 let mermaidCounter = 0
 let mermaidInitialized: string | null = null
+const activeMermaidViews = new Set<MermaidCodeBlockView>()
 
 async function renderMermaidSvg(renderId: string, source: string, theme: 'dark' | 'default'): Promise<string> {
   const { default: mermaid } = await import('mermaid')
@@ -37,6 +38,7 @@ class MermaidCodeBlockView implements NodeView {
   private view: EditorView
   private getPos: () => number | undefined
   private renderId: string
+  private renderRevision = 0
   private previewEl: HTMLDivElement
   private sourceWrapEl: HTMLElement
   private sourceEl: HTMLElement
@@ -45,6 +47,8 @@ class MermaidCodeBlockView implements NodeView {
   private destroyed = false
   /** 最近一次渲染（含错误态/空态）对应的源码，用于渲染完成后检测是否需要补渲染 */
   private lastRenderedSource = ''
+  private lastRenderedTheme: 'dark' | 'default' | null = null
+  private requestedTheme: 'dark' | 'default' | null = null
   private readonly onPreviewClick = () => this.showSource()
   private readonly onSourceBlur = () => this.hideSource()
   private readonly onDocMouseDown = (event: MouseEvent) => {
@@ -63,6 +67,8 @@ class MermaidCodeBlockView implements NodeView {
     if (!isMermaidLanguage(node.attrs.language)) {
       // 普通代码块：沿用 milkdown 默认结构 pre > code(0)
       this.dom = document.createElement('pre')
+      this.dom.className = 'flux-code-block'
+      this.dom.dataset.language = (node.attrs.language as string | undefined)?.trim().split(/\s+/)[0] ?? ''
       this.sourceEl = document.createElement('code')
       this.dom.appendChild(this.sourceEl)
       this.contentDOM = this.sourceEl
@@ -94,6 +100,7 @@ class MermaidCodeBlockView implements NodeView {
     this.previewEl.addEventListener('click', this.onPreviewClick)
     this.sourceEl.addEventListener('blur', this.onSourceBlur)
     document.addEventListener('mousedown', this.onDocMouseDown)
+    activeMermaidViews.add(this)
 
     void this.renderDiagram()
   }
@@ -103,7 +110,14 @@ class MermaidCodeBlockView implements NodeView {
   }
 
   private currentTheme(): 'dark' | 'default' {
+    if (this.requestedTheme) return this.requestedTheme
     return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'
+  }
+
+  refreshTheme(theme: 'dark' | 'default'): void {
+    if (!isMermaidLanguage(this.node.attrs.language)) return
+    this.requestedTheme = theme
+    if (!this.showingSource) void this.renderDiagram()
   }
 
   private async renderDiagram(): Promise<void> {
@@ -116,23 +130,34 @@ class MermaidCodeBlockView implements NodeView {
       return
     }
     this.rendering = true
+    const theme = this.currentTheme()
     try {
-      const svg = await renderMermaidSvg(this.renderId, source, this.currentTheme())
+      const svg = await renderMermaidSvg(`${this.renderId}-${++this.renderRevision}`, source, theme)
       if (this.destroyed) return
       this.previewEl.innerHTML = svg
+      const svgElement = this.previewEl.querySelector('svg')
+      const viewBox = svgElement?.getAttribute('viewBox')?.trim().split(/\s+/).map(Number)
+      if (svgElement && viewBox?.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0) {
+        svgElement.style.width = `${Math.ceil(viewBox[2])}px`
+        svgElement.style.height = 'auto'
+      }
       this.lastRenderedSource = source
+      this.lastRenderedTheme = theme
     } catch {
       if (this.destroyed) return
       this.previewEl.textContent = '图表语法错误'
       // 错误态同样记为已处理，避免 finally 对同一段错误语法反复补渲染
       this.lastRenderedSource = source
+      this.lastRenderedTheme = theme
     } finally {
       this.rendering = false
       // 渲染期间再次失焦/更新的请求会被 rendering 标志丢弃：渲染完成后若仍处于
       // 收起状态且源码已变化，补一次渲染，避免预览停留在旧图
       if (!this.showingSource && !this.destroyed) {
         const source = this.currentSource()
-        if (source !== this.lastRenderedSource) void this.renderDiagram()
+        if (source !== this.lastRenderedSource || this.currentTheme() !== this.lastRenderedTheme) {
+          void this.renderDiagram()
+        }
       }
     }
   }
@@ -167,12 +192,16 @@ class MermaidCodeBlockView implements NodeView {
       return false
     }
     this.node = node
+    if (!isMermaidLanguage(node.attrs.language)) {
+      this.dom.dataset.language = (node.attrs.language as string | undefined)?.trim().split(/\s+/)[0] ?? ''
+    }
     if (!this.showingSource) void this.renderDiagram()
     return true
   }
 
   destroy(): void {
     this.destroyed = true
+    activeMermaidViews.delete(this)
     this.previewEl.removeEventListener('click', this.onPreviewClick)
     this.sourceEl.removeEventListener('blur', this.onSourceBlur)
     document.removeEventListener('mousedown', this.onDocMouseDown)
@@ -195,3 +224,7 @@ class MermaidCodeBlockView implements NodeView {
 export const mermaidCodeBlockView = $view(codeBlockSchema.node, () => (node, view, getPos) => {
   return new MermaidCodeBlockView(node, view, getPos)
 })
+
+export function refreshMermaidCodeBlockViews(theme: 'dark' | 'default'): void {
+  activeMermaidViews.forEach((view) => view.refreshTheme(theme))
+}

@@ -77,8 +77,8 @@ export function normalizeReadingPreferences(value: Partial<ReadingPreferences> |
     uiFontFamily: normalizeFontFamily(value?.uiFontFamily, defaults.uiFontFamily),
     editorFontFamily: normalizeFontFamily(value?.editorFontFamily, defaults.editorFontFamily),
     monoFontFamily: normalizeFontFamily(value?.monoFontFamily, defaults.monoFontFamily),
-    bodyFontSize: normalizeFontSize(value?.bodyFontSize, 12, 24, defaults.bodyFontSize),
-    codeFontSize: normalizeFontSize(value?.codeFontSize, 11, 22, defaults.codeFontSize),
+    bodyFontSize: normalizeFontSize(value?.bodyFontSize, 8, 40, defaults.bodyFontSize),
+    codeFontSize: normalizeFontSize(value?.codeFontSize, 6, 36, defaults.codeFontSize),
   }
 }
 

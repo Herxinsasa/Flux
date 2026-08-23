@@ -1,6 +1,11 @@
 import { app, ipcMain } from 'electron'
 import { IPC_CHANNELS } from '../../shared/ipc-channels'
 import { parseProviderModelPage } from '../../shared/provider-model-list'
+import {
+  normalizeAnthropicBaseUrl,
+  providerChatEndpoint,
+  providerModelsEndpoint,
+} from '../../shared/provider-endpoints'
 import store from '../store/index'
 import { normalizeReadingPreferences, type ReadingPreferences } from '../store/schema'
 import log from '../logger'
@@ -38,20 +43,26 @@ interface SettingsPayload {
 }
 
 type TestConnectionPayload = ProviderConfig
-type ModelProviderKey = 'anthropic' | 'openai' | 'deepseek' | 'kimi' | 'glm' | 'qwen'
+type ModelProviderKey = 'anthropic' | 'openai' | 'deepseek' | 'kimi' | 'glm' | 'qwen' | 'custom'
 
 interface ListModelsPayload {
   presetKey: ModelProviderKey
   apiKey: string
+  type: ProviderConfig['type']
+  baseUrl?: string
 }
 
-const MODEL_PROVIDER_ENDPOINTS: Record<ModelProviderKey, { url: string; protocol: 'anthropic' | 'openai' }> = {
-  anthropic: { url: 'https://api.anthropic.com/v1/models', protocol: 'anthropic' },
-  openai: { url: 'https://api.openai.com/v1/models', protocol: 'openai' },
-  deepseek: { url: 'https://api.deepseek.com/v1/models', protocol: 'openai' },
-  kimi: { url: 'https://api.moonshot.cn/v1/models', protocol: 'openai' },
-  glm: { url: 'https://open.bigmodel.cn/api/paas/v4/models', protocol: 'openai' },
-  qwen: { url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/models', protocol: 'openai' },
+const MODEL_PROVIDER_BASE_URLS: Partial<Record<ModelProviderKey, string>> = {
+  anthropic: 'https://api.anthropic.com',
+  openai: 'https://api.openai.com',
+  deepseek: 'https://api.deepseek.com',
+  kimi: 'https://api.moonshot.cn',
+  glm: 'https://open.bigmodel.cn/api/paas/v4',
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+}
+
+function anthropicMessagesEndpoint(baseUrl?: string): string {
+  return providerChatEndpoint('anthropic', baseUrl)
 }
 
 function normalizeProviderModelOptions(value: unknown): Record<string, string[]> {
@@ -116,12 +127,13 @@ function resolveApiKeyForTest(payload: ProviderConfig): string {
  * Sends a single-user message and expects a valid response.
  */
 async function testAnthropicConnection(config: ProviderConfig): Promise<{ success: boolean; error?: string }> {
-  const baseUrl = config.baseUrl || 'https://api.anthropic.com'
+  const baseUrl = normalizeAnthropicBaseUrl(config.baseUrl)
+  const endpoint = anthropicMessagesEndpoint(baseUrl)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15000)
 
   try {
-    const response = await fetch(`${baseUrl}/v1/messages`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'x-api-key': config.apiKey,
@@ -149,6 +161,7 @@ async function testAnthropicConnection(config: ProviderConfig): Promise<{ succes
         providerName: config.name,
         model: config.model,
         baseUrl,
+        endpoint,
         status: response.status,
         body: text,
       })
@@ -163,6 +176,7 @@ async function testAnthropicConnection(config: ProviderConfig): Promise<{ succes
         providerName: config.name,
         model: config.model,
         baseUrl,
+        endpoint,
       })
       return { success: false, error: '连接超时 (15s) — 请检查请求地址是否正确' }
     }
@@ -180,11 +194,12 @@ async function testAnthropicConnection(config: ProviderConfig): Promise<{ succes
  */
 async function testOpenAICompatConnection(config: ProviderConfig): Promise<{ success: boolean; error?: string }> {
   const baseUrl = config.baseUrl || 'https://api.openai.com'
+  const endpoint = providerChatEndpoint('openai_compat', baseUrl)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15000)
 
   try {
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${config.apiKey}`,
@@ -211,6 +226,7 @@ async function testOpenAICompatConnection(config: ProviderConfig): Promise<{ suc
         providerName: config.name,
         model: config.model,
         baseUrl,
+        endpoint,
         status: response.status,
         body: text,
       })
@@ -225,6 +241,7 @@ async function testOpenAICompatConnection(config: ProviderConfig): Promise<{ suc
         providerName: config.name,
         model: config.model,
         baseUrl,
+        endpoint,
       })
       return { success: false, error: '连接超时 (15s) — 请检查请求地址是否正确' }
     }
@@ -278,18 +295,19 @@ async function readResponseTextLimited(response: Response, maxBytes: number): Pr
 }
 
 async function listProviderModels(payload: ListModelsPayload): Promise<{ success: boolean; data?: { models: string[] }; error?: string }> {
-  const endpoint = MODEL_PROVIDER_ENDPOINTS[payload.presetKey]
-  if (!endpoint) return { success: false, error: '自定义供应商暂不支持在线获取模型列表' }
+  const baseUrl = payload.baseUrl?.trim() || MODEL_PROVIDER_BASE_URLS[payload.presetKey]
+  if (!baseUrl) return { success: false, error: '请先填写请求地址' }
   const apiKey = payload.apiKey.trim()
   if (!apiKey || looksLikeMaskedPlaceholder(apiKey)) return { success: false, error: '请先填写完整 API Key' }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15000)
   try {
-    const headers = endpoint.protocol === 'anthropic'
+    const usesAnthropicProtocol = payload.type === 'anthropic' || payload.type === 'anthropic_compat'
+    const headers = usesAnthropicProtocol
       ? { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
       : { Authorization: `Bearer ${apiKey}` }
     const modelIds = new Set<string>()
-    const url = new URL(endpoint.url)
+    const url = new URL(providerModelsEndpoint(payload.type, baseUrl))
     for (let pageIndex = 0; pageIndex < 20; pageIndex += 1) {
       const response = await fetch(url, { headers, signal: controller.signal })
       if (response.status === 401) return { success: false, error: 'API Key 无效 (401 Unauthorized)' }
@@ -300,13 +318,13 @@ async function listProviderModels(payload: ListModelsPayload): Promise<{ success
       const page = parseProviderModelPage(JSON.parse(await readResponseTextLimited(response, 1024 * 1024)) as unknown)
       page.models.forEach((id) => modelIds.add(id))
       if (!page.hasMore || !page.lastId || modelIds.size >= 10_000) break
-      url.searchParams.set(endpoint.protocol === 'anthropic' ? 'after_id' : 'after', page.lastId)
+      url.searchParams.set(usesAnthropicProtocol ? 'after_id' : 'after', page.lastId)
     }
     const models = [...modelIds].sort((left, right) => left.localeCompare(right))
     return models.length > 0 ? { success: true, data: { models } } : { success: false, error: '供应商未返回可用模型' }
   } catch (error) {
     if ((error as Error).name === 'AbortError') return { success: false, error: '获取模型列表超时 (15s)' }
-    log.error('List provider models failed', { presetKey: payload.presetKey, error })
+    log.error('List provider models failed', { presetKey: payload.presetKey, type: payload.type, baseUrl, error })
     return { success: false, error: '获取模型列表失败，请检查网络' }
   } finally {
     clearTimeout(timeout)

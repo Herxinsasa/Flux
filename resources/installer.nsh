@@ -2,10 +2,13 @@
 !include "nsProcess.nsh"
 
 !macro customInit
-  ${If} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
-    MessageBox MB_YESNO|MB_ICONQUESTION "检测到已安装的 Flux。继续安装将覆盖现有程序文件，用户设置和文档不会被删除。是否继续？" /SD IDYES IDYES flux_continue_overwrite
-    Abort
-    flux_continue_overwrite:
+  ${IfNot} ${UAC_IsInnerInstance}
+    ${If} $hasPerMachineInstallation == "1"
+    ${OrIf} $hasPerUserInstallation == "1"
+      MessageBox MB_YESNO|MB_ICONQUESTION "检测到 Flux 已安装。是否覆盖安装并保留现有配置？" /SD IDYES IDYES flux_overwrite_confirmed
+      Quit
+      flux_overwrite_confirmed:
+    ${EndIf}
   ${EndIf}
 !macroend
 

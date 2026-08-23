@@ -22,8 +22,8 @@ describe('store schema migration', () => {
 })
 
 it('normalizes persisted reading preferences into supported ranges', () => {
-  expect(normalizeReadingPreferences({ bodyFontSize: 9, codeFontSize: 25 })).toMatchObject({
-    bodyFontSize: 12,
-    codeFontSize: 22,
+  expect(normalizeReadingPreferences({ bodyFontSize: 4, codeFontSize: 50 })).toMatchObject({
+    bodyFontSize: 8,
+    codeFontSize: 36,
   })
 })

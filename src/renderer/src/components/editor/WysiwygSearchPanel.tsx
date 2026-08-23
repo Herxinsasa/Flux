@@ -13,6 +13,28 @@ interface WysiwygSearchPanelProps {
   onClose: () => void
 }
 
+interface SearchMatchRange {
+  from: number
+  to: number
+}
+
+function searchQueryKey(query: SearchQuery): string {
+  return JSON.stringify([query.search, query.caseSensitive, query.wholeWord, query.regexp])
+}
+
+export function collectSearchMatchRanges(view: EditorView, query: SearchQuery): SearchMatchRange[] {
+  const ranges: SearchMatchRange[] = []
+  let pos = 0
+  const docSize = view.state.doc.content.size
+  while (pos <= docSize) {
+    const result = query.findNext(view.state, pos)
+    if (!result) break
+    ranges.push({ from: result.from, to: result.to })
+    pos = result.to > pos ? result.to : pos + 1
+  }
+  return ranges
+}
+
 function scrollActiveMatchIntoView(view: EditorView): void {
   window.requestAnimationFrame(() => {
     const scrollContainer = view.dom.closest<HTMLElement>('.flux-scroll')
@@ -37,6 +59,11 @@ export function WysiwygSearchPanel({ view, onClose }: WysiwygSearchPanelProps) {
   const [regexp, setRegexp] = useState(false)
   const [matchInfo, setMatchInfo] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const matchCacheRef = useRef<{
+    doc: EditorView['state']['doc']
+    queryKey: string
+    ranges: SearchMatchRange[]
+  } | null>(null)
   const theme = useSettingsStore((s) => s.theme)
 
   // 面板打开时自动获焦，并从当前搜索状态同步初始值
@@ -53,22 +80,6 @@ export function WysiwygSearchPanel({ view, onClose }: WysiwygSearchPanelProps) {
     searchInputRef.current?.select()
   }, [view])
 
-  // 构造 SearchQuery 并 dispatch（触发高亮）
-  const dispatchQuery = useCallback(
-    (overrides?: Partial<{ search: string; caseSensitive: boolean; wholeWord: boolean; regexp: boolean }>) => {
-      if (!view) return
-      const q = new SearchQuery({
-        search: overrides?.search ?? searchText,
-        caseSensitive: overrides?.caseSensitive ?? caseSensitive,
-        wholeWord: overrides?.wholeWord ?? wholeWord,
-        regexp: overrides?.regexp ?? regexp,
-      })
-      view.dispatch(setSearchState(view.state.tr, q))
-      updateMatchInfo(q)
-    },
-    [view, searchText, caseSensitive, wholeWord, regexp],
-  )
-
   // 计算匹配计数
   const updateMatchInfo = useCallback(
     (query: SearchQuery) => {
@@ -77,18 +88,15 @@ export function WysiwygSearchPanel({ view, onClose }: WysiwygSearchPanelProps) {
         return
       }
       try {
-        let total = 0
-        let current = 0
+        const queryKey = searchQueryKey(query)
+        const cached = matchCacheRef.current
+        const ranges = cached?.doc === view.state.doc && cached.queryKey === queryKey
+          ? cached.ranges
+          : collectSearchMatchRanges(view, query)
+        matchCacheRef.current = { doc: view.state.doc, queryKey, ranges }
         const head = view.state.selection.from
-        let pos = 0
-        const docSize = view.state.doc.content.size
-        while (pos <= docSize) {
-          const result = query.findNext(view.state, pos)
-          if (!result) break
-          total++
-          if (result.from <= head) current = total
-          pos = result.to > pos ? result.to : pos + 1
-        }
+        const total = ranges.length
+        const current = ranges.reduce((index, range, rangeIndex) => range.from <= head ? rangeIndex + 1 : index, 0)
         setMatchInfo(total === 0 ? '无匹配' : `${current}/${total}`)
       } catch {
         setMatchInfo('')
@@ -97,12 +105,29 @@ export function WysiwygSearchPanel({ view, onClose }: WysiwygSearchPanelProps) {
     [view],
   )
 
+  // 构造 SearchQuery 并 dispatch（触发高亮）
+  const dispatchQuery = useCallback(
+    (overrides?: Partial<{ search: string; caseSensitive: boolean; wholeWord: boolean; regexp: boolean }>) => {
+      if (!view) return null
+      const query = new SearchQuery({
+        search: overrides?.search ?? searchText,
+        caseSensitive: overrides?.caseSensitive ?? caseSensitive,
+        wholeWord: overrides?.wholeWord ?? wholeWord,
+        regexp: overrides?.regexp ?? regexp,
+      })
+      view.dispatch(setSearchState(view.state.tr, query))
+      return query
+    },
+    [view, searchText, caseSensitive, wholeWord, regexp],
+  )
+
   const handleSearchChange = useCallback(
     (value: string) => {
       setSearchText(value)
-      dispatchQuery({ search: value })
+      const query = dispatchQuery({ search: value })
+      if (query) updateMatchInfo(query)
     },
-    [dispatchQuery],
+    [dispatchQuery, updateMatchInfo],
   )
 
   const handleOptionChange = useCallback(
@@ -111,29 +136,29 @@ export function WysiwygSearchPanel({ view, onClose }: WysiwygSearchPanelProps) {
       if ('caseSensitive' in opts) setCaseSensitive(opts.caseSensitive!)
       if ('wholeWord' in opts) setWholeWord(opts.wholeWord!)
       if ('regexp' in opts) setRegexp(opts.regexp!)
-      dispatchQuery(next)
+      const query = dispatchQuery(next)
+      if (query) updateMatchInfo(query)
     },
-    [dispatchQuery, caseSensitive, wholeWord, regexp],
+    [dispatchQuery, updateMatchInfo, caseSensitive, wholeWord, regexp],
   )
 
   const handleNext = useCallback(() => {
     if (!view || !searchText) return
-    dispatchQuery()
+    const query = dispatchQuery()
     if (findNext(view.state, view.dispatch)) scrollActiveMatchIntoView(view)
-    const state = getSearchState(view.state)
-    if (state) updateMatchInfo(state.query)
+    if (query) updateMatchInfo(query)
   }, [view, searchText, dispatchQuery, updateMatchInfo])
 
   const handlePrev = useCallback(() => {
     if (!view || !searchText) return
-    dispatchQuery()
+    const query = dispatchQuery()
     if (findPrev(view.state, view.dispatch)) scrollActiveMatchIntoView(view)
-    const state = getSearchState(view.state)
-    if (state) updateMatchInfo(state.query)
+    if (query) updateMatchInfo(query)
   }, [view, searchText, dispatchQuery, updateMatchInfo])
 
   const handleClose = useCallback(() => {
     // 清除搜索高亮
+    matchCacheRef.current = null
     if (view) {
       view.dispatch(setSearchState(view.state.tr, new SearchQuery({ search: '' })))
     }

@@ -6,6 +6,13 @@ import { findTextRangeInProseMirror } from './wysiwygReviewPosition'
 
 const wysiwygReviewDecorationsKey = new PluginKey<DecorationSet>('flux-wysiwyg-review-decorations')
 
+function reviewSourceLength(sourceHash: string): number | undefined {
+  const match = sourceHash.match(/:(\d+)$/)
+  if (!match) return undefined
+  const length = Number(match[1])
+  return Number.isFinite(length) && length > 0 ? length : undefined
+}
+
 export function haveWysiwygReviewDecorationsChanged(
   previous: ReviewComment[],
   next: ReviewComment[],
@@ -41,7 +48,12 @@ export const wysiwygReviewDecorations = $prose(() =>
           const ranges: Array<{ from: number; to: number; id: string }> = []
           for (const comment of incoming) {
             if (comment.anchorStatus === 'orphaned' || comment.anchor.end <= comment.anchor.start) continue
-            const located = findTextRangeInProseMirror(doc, comment.anchor.quote)
+            const sourceLength = reviewSourceLength(comment.anchor.sourceHash)
+            const located = findTextRangeInProseMirror(
+              doc,
+              comment.anchor.quote,
+              sourceLength ? comment.anchor.start / sourceLength : undefined,
+            )
             if (located == null) continue
             const from = Math.max(0, located.from)
             const to = Math.min(doc.content.size, Math.max(from + 1, located.to))

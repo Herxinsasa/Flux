@@ -71,7 +71,7 @@ registerLocalFileProtocol()
 enqueueOpenFile(process.argv)
 
 function createWindow(): void {
-  const theme = store.get('theme')
+  const theme = store.get('theme') === 'light' ? 'light' : 'dark'
   const backgroundColor = theme === 'light' ? '#f2f2f7' : '#1c1c1e'
 
   const mainWindow = new BrowserWindow({
@@ -132,9 +132,13 @@ function createWindow(): void {
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    const rendererUrl = new URL(process.env.ELECTRON_RENDERER_URL)
+    rendererUrl.searchParams.set('theme', theme)
+    void mainWindow.loadURL(rendererUrl.toString())
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+      query: { theme },
+    })
   }
 }
 
