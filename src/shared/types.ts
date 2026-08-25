@@ -71,31 +71,14 @@ export interface WorkspaceScanEvent {
   error?: string
 }
 
-/** 工作区 config/config.json 中的供应商信息（不含 API Key） */
-export interface WorkspaceSupplierConfig {
-  name: string;
-  type: 'anthropic' | 'anthropic_compat' | 'openai_compat';
-  model: string;
-  baseUrl: string;
-  /** 用户已完成密钥等信息配置（由保存设置时写入） */
-  setupComplete: boolean;
-  /** 最近一次连通性测试结果；尚未测试为 null */
-  connectionOk: boolean | null;
-  lastConnectionError: string | null;
-  lastConnectionCheckAt: string | null;
-}
-
-/** 与磁盘 config.json 对齐，供 IPC 传递 */
-export interface WorkspaceConfigFilePayload {
-  version: 1;
-  supplier: WorkspaceSupplierConfig;
+export interface WorkspaceChangeEvent {
+  watchId: string
+  root: string
 }
 
 export interface WorkspaceOpenData {
   root: string;
   files: WorkspaceFileEntry[];
-  /** 已确保存在的 config/config.json 解析结果 */
-  workspaceConfig: WorkspaceConfigFilePayload;
 }
 
 export interface IpcResponse<T = unknown> {

@@ -12,7 +12,7 @@ describe('baseline2.0 Windows release contract', () => {
     const lock = JSON.parse(read('package-lock.json')) as { version: string; packages: Record<string, { version?: string }> }
     const builder = read('electron-builder.yml')
 
-    expect(packageJson.version).toBe('2.0.0')
+    expect(packageJson.version).toBe('2.0.1')
     expect(lock.version).toBe(packageJson.version)
     expect(lock.packages[''].version).toBe(packageJson.version)
     expect(builder).toContain('appId: com.flux.text-editor')

@@ -40,10 +40,7 @@ export function AppShell() {
   const files = useFileStore((s) => s.files)
   const hasFiles = files.length > 0
   const { importFiles } = useFileImport()
-  const { load: loadSettings, applyWorkspaceSupplierFromConfig } = useProvider()
-  const workspaceRoot = useFileStore((s) => s.workspaceRoot)
-  const workspaceConfig = useFileStore((s) => s.workspaceConfig)
-  const workspaceOpenNonce = useFileStore((s) => s.workspaceOpenNonce)
+  const { load: loadSettings } = useProvider()
   const [globalToast, setGlobalToast] = useState<FluxToastState | null>(null)
 
   useEffect(() => {
@@ -157,24 +154,6 @@ export function AppShell() {
   useEffect(() => {
     loadSettings()
   }, [loadSettings])
-
-  /** 打开工作区后：合并磁盘供应商配置。AI 为增强功能，不自动测试连接、不弹提示，避免无配置时干扰 */
-  useEffect(() => {
-    if (!workspaceRoot || workspaceOpenNonce === 0) return
-
-    void (async () => {
-      await loadSettings()
-      if (workspaceConfig) {
-        applyWorkspaceSupplierFromConfig(workspaceConfig)
-      }
-    })()
-  }, [
-    workspaceOpenNonce,
-    workspaceRoot,
-    workspaceConfig,
-    loadSettings,
-    applyWorkspaceSupplierFromConfig,
-  ])
 
   const handleFilesDrop = useCallback(
     async (paths: string[]) => {

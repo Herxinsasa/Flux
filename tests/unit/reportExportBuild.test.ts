@@ -68,4 +68,23 @@ describe('reportExportBuild', () => {
     ]
     expect(reportIntentForAiMessage(messages, 'a1').reportRequested).toBe(true)
   })
+
+  it('keeps export available when a report skill supplies the delivery hint', () => {
+    const messages: Message[] = [
+      { id: 'u1', role: 'user', content: '分析这些问题', contextFootnote: '/技术评审报告' },
+      { id: 'a1', role: 'ai', content: '## 结论\n\n以上报告可直接点击下方「导出报告」按钮保存。' },
+    ]
+    expect(reportIntentForAiMessage(messages, 'a1').reportRequested).toBe(true)
+  })
+
+  it('does not treat an ordinary AI problem summary as a requested export', () => {
+    const messages: Message[] = [
+      { id: 'u1', role: 'user', content: '分析这些问题' },
+      { id: 'a1', role: 'ai', content: '## 问题总结\n\n这里是分析结论。' },
+    ]
+    expect(reportIntentForAiMessage(messages, 'a1')).toEqual({
+      reportRequested: false,
+      problemSummaryRequested: false,
+    })
+  })
 })

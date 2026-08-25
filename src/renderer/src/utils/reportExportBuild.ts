@@ -5,9 +5,11 @@ export function hasReportIntent(text: string): boolean {
   const t = text.toLowerCase()
   if (!t.trim()) return false
   if (t.includes('/analysis-report')) return true
+  if (/(^|\s)\/[\w\u4e00-\u9fff-]*(report|报告|summary|总结)[\w\u4e00-\u9fff-]*/i.test(t)) return true
   return (
     /(导出|输出|生成|撰写|整理).{0,12}(分析报告|正式报告|markdown\s*报告|结构化报告|报告)/i.test(t) ||
-    /(分析结果|结论).{0,10}(做成|整理成|写成).{0,10}(报告|文档)/i.test(t)
+    /(分析结果|结论).{0,10}(做成|整理成|写成).{0,10}(报告|文档)/i.test(t) ||
+    /点击.{0,16}导出报告/i.test(t)
   )
 }
 
@@ -16,6 +18,10 @@ export function hasProblemSummaryIntent(text: string): boolean {
   if (!t.trim()) return false
   if (t.includes('/problem-summary')) return true
   return /(问题总结|排查总结|故障复盘|问题沉淀|知识库条目|经验总结|总结报告)/i.test(t)
+}
+
+function hasReportDeliveryHint(text: string): boolean {
+  return /点击.{0,16}导出报告/i.test(text)
 }
 
 /** 用户本轮是否要求报告类交付物 */
@@ -29,8 +35,9 @@ export function reportIntentForAiMessage(messages: Message[], aiMessageId: strin
       ? [...messages.slice(0, aiIndex)].reverse().find((m) => m.role === 'user')
       : undefined
   const userText = [prevUser?.content ?? '', prevUser?.contextFootnote ?? ''].join('\n')
+  const aiText = aiIndex >= 0 ? messages[aiIndex]?.content ?? '' : ''
   return {
-    reportRequested: hasReportIntent(userText),
+    reportRequested: hasReportIntent(userText) || hasReportDeliveryHint(aiText),
     problemSummaryRequested: hasProblemSummaryIntent(userText),
   }
 }

@@ -49,6 +49,7 @@ class MermaidCodeBlockView implements NodeView {
   private lastRenderedSource = ''
   private lastRenderedTheme: 'dark' | 'default' | null = null
   private requestedTheme: 'dark' | 'default' | null = null
+  private contentScale = 1
   private readonly onPreviewClick = () => this.showSource()
   private readonly onSourceBlur = () => this.hideSource()
   private readonly onDocMouseDown = (event: MouseEvent) => {
@@ -114,10 +115,26 @@ class MermaidCodeBlockView implements NodeView {
     return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'
   }
 
-  refreshTheme(theme: 'dark' | 'default'): void {
+  refreshDisplay(theme: 'dark' | 'default', contentScale: number): void {
     if (!isMermaidLanguage(this.node.attrs.language)) return
+    const previousTheme = this.requestedTheme
     this.requestedTheme = theme
-    if (!this.showingSource) void this.renderDiagram()
+    this.contentScale = Number.isFinite(contentScale) && contentScale > 0 ? contentScale : 1
+    this.applyPreviewScale()
+    if (previousTheme !== theme && !this.showingSource) void this.renderDiagram()
+  }
+
+  private applyPreviewScale(): void {
+    if (!isMermaidLanguage(this.node.attrs.language)) return
+    const svgElement = this.previewEl.querySelector('svg')
+    const viewBox = svgElement?.getAttribute('viewBox')?.trim().split(/\s+/).map(Number)
+    if (!svgElement || viewBox?.length !== 4 || !viewBox.every(Number.isFinite) || viewBox[2] <= 0) return
+
+    // The editor surface already uses CSS zoom. Cancel it for the preview container,
+    // then apply the requested scale to the SVG dimensions so diagrams track text zoom exactly.
+    this.previewEl.style.zoom = String(1 / this.contentScale)
+    svgElement.style.width = `${Math.ceil(viewBox[2] * this.contentScale)}px`
+    svgElement.style.height = 'auto'
   }
 
   private async renderDiagram(): Promise<void> {
@@ -135,12 +152,7 @@ class MermaidCodeBlockView implements NodeView {
       const svg = await renderMermaidSvg(`${this.renderId}-${++this.renderRevision}`, source, theme)
       if (this.destroyed) return
       this.previewEl.innerHTML = svg
-      const svgElement = this.previewEl.querySelector('svg')
-      const viewBox = svgElement?.getAttribute('viewBox')?.trim().split(/\s+/).map(Number)
-      if (svgElement && viewBox?.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0) {
-        svgElement.style.width = `${Math.ceil(viewBox[2])}px`
-        svgElement.style.height = 'auto'
-      }
+      this.applyPreviewScale()
       this.lastRenderedSource = source
       this.lastRenderedTheme = theme
     } catch {
@@ -225,6 +237,6 @@ export const mermaidCodeBlockView = $view(codeBlockSchema.node, () => (node, vie
   return new MermaidCodeBlockView(node, view, getPos)
 })
 
-export function refreshMermaidCodeBlockViews(theme: 'dark' | 'default'): void {
-  activeMermaidViews.forEach((view) => view.refreshTheme(theme))
+export function refreshMermaidCodeBlockViews(theme: 'dark' | 'default', contentScale = 1): void {
+  activeMermaidViews.forEach((view) => view.refreshDisplay(theme, contentScale))
 }

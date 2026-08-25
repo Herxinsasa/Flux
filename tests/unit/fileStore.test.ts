@@ -10,6 +10,9 @@ const mockOpenFolder = vi.fn()
 const mockScanWorkspace = vi.fn()
 const mockCancelWorkspaceScan = vi.fn()
 const mockOnWorkspaceScan = vi.fn()
+const mockWatchWorkspace = vi.fn()
+const mockStopWorkspaceWatch = vi.fn()
+const mockOnWorkspaceChange = vi.fn()
 const mockRecordRecent = vi.fn()
 const mockListSessions = vi.fn()
 const mockReadWorkspaceSession = vi.fn()
@@ -26,6 +29,9 @@ vi.stubGlobal('window', {
       scanWorkspace: mockScanWorkspace,
       cancelWorkspaceScan: mockCancelWorkspaceScan,
       onWorkspaceScan: mockOnWorkspaceScan,
+      watchWorkspace: mockWatchWorkspace,
+      stopWorkspaceWatch: mockStopWorkspaceWatch,
+      onWorkspaceChange: mockOnWorkspaceChange,
     },
     recent: { record: mockRecordRecent },
     workspace: {
@@ -90,6 +96,9 @@ describe('useFileStore', () => {
       },
     })
     mockCancelWorkspaceScan.mockResolvedValue({ success: true, data: { cancelled: true } })
+    mockWatchWorkspace.mockResolvedValue({ success: true, data: { taskId: 'watch-1' } })
+    mockStopWorkspaceWatch.mockResolvedValue({ success: true, data: { stopped: true } })
+    mockOnWorkspaceChange.mockReturnValue(() => undefined)
     mockRecordRecent.mockResolvedValue({ success: true })
     mockListSessions.mockResolvedValue({ success: true, data: [] })
     mockReadWorkspaceSession.mockResolvedValue({ success: true, data: null })
@@ -285,7 +294,7 @@ describe('useFileStore', () => {
       })
       mockOpenFolder.mockResolvedValue({
         success: true,
-        data: { root: 'C:\\workspace', files: [], workspaceConfig: null },
+        data: { root: 'C:\\workspace', files: [] },
       })
       mockScanWorkspace.mockImplementation(async () => {
         scanListener?.({
@@ -316,6 +325,53 @@ describe('useFileStore', () => {
 
       expect(useFileStore.getState().workspaceScanStatus).toBe('error')
       expect(useFileStore.getState().workspaceScanError).toBe('Folder dialog failed')
+    })
+
+    it('rescans after the workspace watcher reports a filesystem change', async () => {
+      vi.useFakeTimers()
+      let changeListener: ((event: { watchId: string; root: string }) => void) | null = null
+      mockOnWorkspaceChange.mockImplementation((listener) => {
+        changeListener = listener
+        return vi.fn()
+      })
+      mockOnWorkspaceScan.mockReturnValue(vi.fn())
+      mockOpenFolder.mockResolvedValue({ success: true, data: { root: 'C:\\workspace', files: [] } })
+      mockScanWorkspace.mockResolvedValue({ success: true, data: { taskId: 'scan-1' } })
+
+      await useFileStore.getState().openFolder()
+      expect(mockScanWorkspace).toHaveBeenCalledTimes(1)
+
+      changeListener?.({ watchId: 'watch-1', root: 'C:\\workspace' })
+      await vi.advanceTimersByTimeAsync(250)
+
+      expect(mockScanWorkspace).toHaveBeenCalledTimes(2)
+      vi.useRealTimers()
+    })
+  })
+
+  describe('clearWorkspace', () => {
+    it('keeps the workspace watcher active when a dirty-document prompt is cancelled', async () => {
+      const confirm = vi.fn().mockReturnValue(true)
+      vi.stubGlobal('confirm', confirm)
+      window.confirm = confirm
+      useFileStore.setState({
+        workspaceRoot: 'C:\\workspace',
+        workspaceFiles: [{ path: 'C:\\workspace\\notes.md', relativePath: 'notes.md' }],
+      })
+      useEditorStore.getState().setDocumentSnapshot('C:\\workspace\\notes.md', {
+        filePath: 'C:\\workspace\\notes.md', content: '# Notes', encoding: 'utf8', lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 7, contentHash: 'notes' }, sampled: false,
+      })
+      useEditorStore.getState().setContent('# Changed')
+      const prompt = vi.fn(async () => 'cancel' as const)
+      const unregister = registerUnsavedPrompt(prompt)
+
+      useFileStore.getState().clearWorkspace()
+
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalled())
+      expect(useFileStore.getState().workspaceRoot).toBe('C:\\workspace')
+      expect(mockStopWorkspaceWatch).not.toHaveBeenCalled()
+      unregister()
     })
   })
 

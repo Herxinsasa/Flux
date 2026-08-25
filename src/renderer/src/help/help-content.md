@@ -186,6 +186,10 @@
 | Ctrl+Shift+L | 专注模式（隐藏侧栏与面板） |
 | Alt+K | 引用编辑器选区给 AI |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Markdown 编辑器缩放 / 复位 |
+| Ctrl+1 至 Ctrl+5 | 一级至五级标题 |
+| Ctrl+B / Ctrl+I / Ctrl+K | 粗体 / 斜体 / 插入链接 |
+| Ctrl+Shift+K / Ctrl+Shift+Q | 代码块 / 引用块 |
+| Ctrl+Shift+7 / Ctrl+Shift+8 / Ctrl+Shift+9 | 有序列表 / 无序列表 / 任务列表 |
 | Esc | 取消正在运行的 Agent 任务 |
 
 ## 9. 导出报告

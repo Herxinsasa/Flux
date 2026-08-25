@@ -119,9 +119,10 @@ if (-not $validConclusion) {
   exit 1
 }
 
-if ([string]$reviewData.review_agent_name -ne "code-reviewer" -or
+$allowedReviewerRoles = @("code-reviewer", "main-agent-reviewer")
+if ($allowedReviewerRoles -notcontains [string]$reviewData.review_agent_name -or
     [string]::IsNullOrWhiteSpace([string]$reviewData.review_agent_id)) {
-  Write-Host "[pre-commit] Review status has no independent code-reviewer execution ID; run code-review again."
+  Write-Host "[pre-commit] Review status has no approved reviewer role or execution ID; run code-review again."
   exit 1
 }
 

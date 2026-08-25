@@ -38,6 +38,9 @@ declare global {
         scanWorkspace: (root: string) => Promise<{ success: boolean; data?: import('../../../shared/types').TaskStartData; error?: string }>
         cancelWorkspaceScan: (taskId: string) => Promise<{ success: boolean; data?: { cancelled: boolean }; error?: string }>
         onWorkspaceScan: (callback: (event: import('../../../shared/types').WorkspaceScanEvent) => void) => () => void
+        watchWorkspace: (root: string) => Promise<{ success: boolean; data?: import('../../../shared/types').TaskStartData; error?: string }>
+        stopWorkspaceWatch: (watchId: string) => Promise<{ success: boolean; data?: { stopped: boolean }; error?: string }>
+        onWorkspaceChange: (callback: (event: import('../../../shared/types').WorkspaceChangeEvent) => void) => () => void
         read: (filePath: string) => Promise<unknown>
         readText: (filePath: string) => Promise<{
           success: boolean
@@ -79,9 +82,6 @@ declare global {
           type: 'anthropic' | 'anthropic_compat' | 'openai_compat'
           baseUrl?: string
         }) => Promise<{ success: boolean; data?: { models: string[] }; error?: string }>
-        workspaceVerify: (
-          workspaceRoot: string,
-        ) => Promise<{ success: boolean; skipped?: boolean; error?: string }>
       }
       agent: {
         send: (message: string, context?: unknown) => Promise<unknown>

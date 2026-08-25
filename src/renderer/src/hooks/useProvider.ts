@@ -1,8 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useSettingsStore, type Provider } from '../stores/settingsStore'
-import { useFileStore } from '../stores/fileStore'
 import { ANTHROPIC_MODEL_IDS, OPENAI_OFFICIAL_MODEL_IDS } from '../config/providerModels'
-import type { WorkspaceConfigFilePayload } from '../../../shared/types'
 
 interface TestResult {
   success: boolean
@@ -17,7 +15,6 @@ interface UseProviderReturn {
   testConnection: (provider: Provider) => Promise<TestResult>
   save: () => Promise<void>
   load: () => Promise<void>
-  applyWorkspaceSupplierFromConfig: (cfg: WorkspaceConfigFilePayload) => void
   testingId: string | null
   testResults: Record<string, TestResult | null>
 }
@@ -74,39 +71,15 @@ export function useProvider(): UseProviderReturn {
     }
   }, [setProviders, setActiveProvider, setConfigured, setTheme])
 
-  /** 将工作区 config 中的供应商（默认 Claude）写入唯一一条记录（保留已有 apiKey） */
-  const applyWorkspaceSupplierFromConfig = useCallback(
-    (cfg: WorkspaceConfigFilePayload) => {
-      const s = cfg.supplier
-      const state = useSettingsStore.getState()
-      const prev = state.providers[0]
-      const id = prev?.id ?? generateId()
-      setProviders([
-        {
-          id,
-          name: s.name,
-          type: s.type,
-          apiKey: prev?.apiKey ?? '',
-          model: s.model,
-          baseUrl: s.baseUrl || undefined,
-        },
-      ])
-      setActiveProvider(id)
-    },
-    [generateId, setProviders, setActiveProvider],
-  )
-
   /** Persist current providers to electron-store via IPC */
   const save = useCallback(async () => {
     const current = useSettingsStore.getState()
-    const workspaceRoot = useFileStore.getState().workspaceRoot
-      const payload = {
-        providers: current.providers.slice(0, 1).map((p) => ({ ...p })),
-        activeProvider: current.activeProvider,
-        theme: current.theme,
-        providerModelOptions: current.providerModelOptions,
-        workspaceRoot,
-      }
+    const payload = {
+      providers: current.providers.slice(0, 1).map((p) => ({ ...p })),
+      activeProvider: current.activeProvider,
+      theme: current.theme,
+      providerModelOptions: current.providerModelOptions,
+    }
 
     const res = (await window.electronAPI.settings.save(payload)) as {
       success?: boolean
@@ -220,7 +193,6 @@ export function useProvider(): UseProviderReturn {
     testConnection,
     save,
     load,
-    applyWorkspaceSupplierFromConfig,
     testingId,
     testResults,
   }

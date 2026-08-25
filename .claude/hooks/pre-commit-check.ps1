@@ -31,10 +31,10 @@ if ($hasXmake) {
   & cmake --build build 2>&1 | Out-Host
   if ($LASTEXITCODE -ne 0) { $buildFailed = $true }
 } elseif ($hasPackageJson) {
-  $buildCommand = "npm run build"
+  $buildCommand = "node node_modules/electron-vite/bin/electron-vite.js build"
   Write-Host "[pre-commit] Node.js project detected; running build check..."
   if (Test-Path "$rootDir\node_modules") {
-    & npm --prefix "$rootDir" run build 2>&1 | Out-Host
+    & node "$rootDir\node_modules\electron-vite\bin\electron-vite.js" build 2>&1 | Out-Host
     if ($LASTEXITCODE -ne 0) { $buildFailed = $true }
   } else {
     Write-Host "[pre-commit] node_modules not found; skipping npm build."

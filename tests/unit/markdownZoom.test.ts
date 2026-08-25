@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   applyMarkdownZoomAction,
+  getMarkdownShortcutCommand,
   getMarkdownZoomAction,
   getMarkdownZoomPercent,
 } from '../../src/renderer/src/hooks/useShortcuts'
@@ -25,6 +26,17 @@ describe('Markdown content zoom', () => {
     expect(getMarkdownZoomAction({ ctrlKey: true, metaKey: false, key: 'Subtract', code: 'NumpadSubtract' })).toBe('out')
     expect(getMarkdownZoomAction({ ctrlKey: false, metaKey: true, key: '0' })).toBe('reset')
     expect(getMarkdownZoomAction({ ctrlKey: false, metaKey: false, key: '=' })).toBeNull()
+  })
+
+  it('maps Typora-style formatting shortcuts without taking Ctrl+0 from zoom', () => {
+    const key = (value: string, shiftKey = false, code?: string) => ({ ctrlKey: true, metaKey: false, altKey: false, shiftKey, key: value, code })
+    expect(getMarkdownShortcutCommand(key('1'))).toBe('heading-1')
+    expect(getMarkdownShortcutCommand(key('5'))).toBe('heading-5')
+    expect(getMarkdownShortcutCommand(key('b'))).toBe('bold')
+    expect(getMarkdownShortcutCommand(key('k'))).toBe('insert-link')
+    expect(getMarkdownShortcutCommand(key('K', true))).toBe('insert-code-block')
+    expect(getMarkdownShortcutCommand(key('&', true, 'Digit7'))).toBe('ordered-list')
+    expect(getMarkdownShortcutCommand(key('0'))).toBeNull()
   })
 
   it('zooms live and source editing together and reports the shared percentage', () => {

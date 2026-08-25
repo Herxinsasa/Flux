@@ -12,10 +12,30 @@ import {
   useSettingsStore,
 } from '../stores/settingsStore'
 import { saveActiveDocument } from '../utils/documentSave'
+import type { MarkdownCommandId } from '../components/editor/markdownCommandModel'
+import { dispatchMarkdownCommand } from '../components/editor/markdownCommandEvents'
 
 export { getSaveErrorMessage, saveActiveDocument } from '../utils/documentSave'
 
 export type MarkdownZoomAction = 'in' | 'out' | 'reset'
+
+export function getMarkdownShortcutCommand(
+  event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'key'> & { code?: string },
+): MarkdownCommandId | null {
+  if ((!event.ctrlKey && !event.metaKey) || event.altKey) return null
+  const key = event.key.toLowerCase()
+  const digit = event.code?.match(/^Digit([1-9])$/)?.[1] ?? (/^[1-9]$/.test(key) ? key : '')
+  if (!event.shiftKey && /^[1-5]$/.test(digit)) return `heading-${digit}` as MarkdownCommandId
+  if (!event.shiftKey && key === 'b') return 'bold'
+  if (!event.shiftKey && key === 'i') return 'italic'
+  if (!event.shiftKey && key === 'k') return 'insert-link'
+  if (event.shiftKey && key === 'k') return 'insert-code-block'
+  if (event.shiftKey && key === 'q') return 'blockquote'
+  if (event.shiftKey && digit === '7') return 'ordered-list'
+  if (event.shiftKey && digit === '8') return 'unordered-list'
+  if (event.shiftKey && digit === '9') return 'task-list'
+  return null
+}
 
 const MARKDOWN_ZOOM_DEFAULT = DEFAULT_READING_PREFERENCES.bodyFontSize
 
@@ -84,6 +104,18 @@ export function useShortcuts() {
           e.preventDefault()
           e.stopPropagation()
           applyMarkdownZoomAction(markdownZoomAction)
+          return
+        }
+      }
+
+      const markdownCommand = getMarkdownShortcutCommand(e)
+      if (markdownCommand && useEditorStore.getState().mode === 'markdown') {
+        const markdownEditor = document.querySelector('.markdown-editor-container')
+        const target = e.target instanceof Node ? e.target : document.activeElement
+        if (markdownEditor && target && markdownEditor.contains(target)) {
+          e.preventDefault()
+          e.stopPropagation()
+          dispatchMarkdownCommand(markdownCommand)
           return
         }
       }

@@ -49,6 +49,7 @@ import {
 } from './wysiwygReviewDecorations'
 import { findTextRangeInProseMirror } from './wysiwygReviewPosition'
 import { plainHeadingText } from '../../utils/markdownHeadingIds'
+import { listenForMarkdownCommands } from './markdownCommandEvents'
 
 interface MdWysiwygEditorProps {
   fileKey: string
@@ -336,8 +337,15 @@ function MdWysiwygEditorInner({
 
   useEffect(() => {
     if (!viewReady) return
-    refreshMermaidCodeBlockViews(theme === 'dark' ? 'dark' : 'default')
-  }, [theme, viewReady])
+    refreshMermaidCodeBlockViews(theme === 'dark' ? 'dark' : 'default', contentZoom)
+  }, [theme, contentZoom, viewReady])
+
+  useEffect(() => listenForMarkdownCommands((command) => {
+    const editor = editorRef.current
+    if (!editor || isReadOnly) return
+    userEditRef.current = true
+    runWysiwygMarkdownCommand(editor, command)
+  }), [isReadOnly])
 
   const refreshTableTools = useCallback(() => {
     const root = rootRef.current

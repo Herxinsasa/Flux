@@ -70,10 +70,20 @@ interface WorkspaceScanTask {
   cancelled: boolean
 }
 
+interface WorkspaceWatchTask {
+  watcher: fs.FSWatcher
+  timer: NodeJS.Timeout | null
+}
+
 const workspaceScanTasks = new Map<string, WorkspaceScanTask>()
+const workspaceWatchTasks = new Map<string, WorkspaceWatchTask>()
 
 function nextTaskId() {
   return `workspace-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function nextWatchId() {
+  return `workspace-watch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function yieldToEventLoop(): Promise<void> {
@@ -228,5 +238,42 @@ export function cancelWorkspaceScan(taskId: string): boolean {
   const task = workspaceScanTasks.get(taskId)
   if (!task) return false
   task.cancelled = true
+  return true
+}
+
+/**
+ * Watch a Windows workspace recursively and collapse bursty filesystem events
+ * into one refresh notification. The watcher never writes inside the workspace.
+ */
+export function startWorkspaceWatch(rootDir: string, onChange: (watchId: string, root: string) => void): TaskStartData {
+  const root = path.resolve(rootDir)
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+    throw new Error('Invalid workspace root')
+  }
+
+  const watchId = nextWatchId()
+  const task: WorkspaceWatchTask = { watcher: null as unknown as fs.FSWatcher, timer: null }
+  const watcher = fs.watch(root, { recursive: true }, (_eventType, fileName) => {
+    const relativePath = fileName?.toString().split(path.sep).join('/') ?? ''
+    if (relativePath.split('/').some((part) => shouldIgnoreDirectory(part))) return
+    if (relativePath.endsWith('.review.json')) return
+    if (task.timer) clearTimeout(task.timer)
+    task.timer = setTimeout(() => {
+      task.timer = null
+      onChange(watchId, root)
+    }, 180)
+  })
+  task.watcher = watcher
+  workspaceWatchTasks.set(watchId, task)
+  watcher.on('error', () => stopWorkspaceWatch(watchId))
+  return { taskId: watchId }
+}
+
+export function stopWorkspaceWatch(watchId: string): boolean {
+  const task = workspaceWatchTasks.get(watchId)
+  if (!task) return false
+  if (task.timer) clearTimeout(task.timer)
+  task.watcher.close()
+  workspaceWatchTasks.delete(watchId)
   return true
 }

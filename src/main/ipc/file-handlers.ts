@@ -19,8 +19,12 @@ import {
   detectEncoding,
 } from '../services/file-service'
 import { streamReadFile } from '../services/stream-reader'
-import { cancelWorkspaceScan, startWorkspaceScan } from '../services/workspace-service'
-import { ensureWorkspaceConfig } from '../services/workspace-config-service'
+import {
+  cancelWorkspaceScan,
+  startWorkspaceScan,
+  startWorkspaceWatch,
+  stopWorkspaceWatch,
+} from '../services/workspace-service'
 import fs from 'fs'
 import path from 'path'
 
@@ -41,6 +45,9 @@ export function registerFileHandlers(): void {
     FILE_SCAN_WORKSPACE,
     FILE_CANCEL_WORKSPACE_SCAN,
     FILE_WORKSPACE_SCAN_EVENT,
+    FILE_WATCH_WORKSPACE,
+    FILE_STOP_WORKSPACE_WATCH,
+    FILE_WORKSPACE_CHANGE_EVENT,
     FILE_READ,
     FILE_READ_TEXT,
     FILE_READ_STREAM,
@@ -131,7 +138,7 @@ export function registerFileHandlers(): void {
         if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
           return { success: false, error: 'Invalid workspace root' }
         }
-        return { success: true, data: { root, files: [], workspaceConfig: ensureWorkspaceConfig(root) } }
+        return { success: true, data: { root, files: [] } }
       }
       const owner = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow()
       const options: OpenDialogOptions = {
@@ -147,8 +154,7 @@ export function registerFileHandlers(): void {
       }
 
       const root = result.filePaths[0]
-      const workspaceConfig = ensureWorkspaceConfig(root)
-      return { success: true, data: { root, files: [], workspaceConfig } }
+      return { success: true, data: { root, files: [] } }
     } catch (err) {
       return { success: false, error: String(err) }
     }
@@ -302,6 +308,36 @@ export function registerFileHandlers(): void {
         return { success: false, error: 'Invalid workspace scan task', code: 'INVALID_DATA' }
       }
       return { success: true, data: { cancelled: cancelWorkspaceScan(taskId) } }
+    },
+  )
+
+  ipcMain.handle(
+    FILE_WATCH_WORKSPACE,
+    async (event, root: string): Promise<IpcResponse<{ taskId: string }>> => {
+      if (!isOptionalWorkspaceRoot(root) || !path.isAbsolute(root)) {
+        return { success: false, error: 'Invalid workspace root', code: 'INVALID_DATA' }
+      }
+      try {
+        const task = startWorkspaceWatch(root, (watchId, watchedRoot) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send(FILE_WORKSPACE_CHANGE_EVENT, { watchId, root: watchedRoot })
+          }
+        })
+        event.sender.once('destroyed', () => stopWorkspaceWatch(task.taskId))
+        return { success: true, data: task }
+      } catch (error) {
+        return toErrorResponse(error)
+      }
+    },
+  )
+
+  ipcMain.handle(
+    FILE_STOP_WORKSPACE_WATCH,
+    async (_event, watchId: string): Promise<IpcResponse<{ stopped: boolean }>> => {
+      if (!watchId || typeof watchId !== 'string') {
+        return { success: false, error: 'Invalid workspace watch task', code: 'INVALID_DATA' }
+      }
+      return { success: true, data: { stopped: stopWorkspaceWatch(watchId) } }
     },
   )
 

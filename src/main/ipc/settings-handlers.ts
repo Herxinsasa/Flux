@@ -10,11 +10,6 @@ import store from '../store/index'
 import { normalizeReadingPreferences, type ReadingPreferences } from '../store/schema'
 import log from '../logger'
 import { syncNativeChromeTheme } from '../native-theme'
-import {
-  ensureWorkspaceConfig,
-  syncSupplierFromProviderState,
-  updateSupplierConnectionStatus,
-} from '../services/workspace-config-service'
 import { loadCatalog, isModelValid } from '../services/catalog-service'
 
 interface ProviderConfig {
@@ -38,8 +33,6 @@ interface SettingsPayload {
   sessionPersistenceEnabled?: boolean
   sessionRetentionDays?: number
   sessionMaxStorageMb?: number
-  /** 若设置，保存后将供应商摘要同步到该工作区下的 config/config.json（不含 API Key） */
-  workspaceRoot?: string | null
 }
 
 type TestConnectionPayload = ProviderConfig
@@ -332,7 +325,7 @@ async function listProviderModels(payload: ListModelsPayload): Promise<{ success
 }
 
 export function registerSettingsHandlers(): void {
-  const { APP_GET_VERSION, SETTINGS_SAVE, SETTINGS_GET, SETTINGS_GET_CATALOG, SETTINGS_TEST_CONNECTION, SETTINGS_LIST_MODELS, SETTINGS_WORKSPACE_VERIFY } = IPC_CHANNELS
+  const { APP_GET_VERSION, SETTINGS_SAVE, SETTINGS_GET, SETTINGS_GET_CATALOG, SETTINGS_TEST_CONNECTION, SETTINGS_LIST_MODELS } = IPC_CHANNELS
 
   ipcMain.handle(APP_GET_VERSION, async () => {
     try {
@@ -468,25 +461,6 @@ export function registerSettingsHandlers(): void {
 
       syncNativeChromeTheme()
 
-      // 同步工作区 config/config.json（供应商元数据，不含 API Key）
-      if (payload.workspaceRoot && typeof payload.workspaceRoot === 'string') {
-        const wsRoot = payload.workspaceRoot.trim()
-        if (wsRoot) {
-          const savedProviders = (store.get('providers') || []) as ProviderConfig[]
-          const activeId = store.get('activeProvider')
-          const p = savedProviders.find((x) => x.id === activeId) ?? savedProviders[0]
-          if (p) {
-            syncSupplierFromProviderState(wsRoot, {
-              name: p.name,
-              type: p.type,
-              model: p.model,
-              baseUrl: p.baseUrl ?? '',
-              setupComplete: !!(p.apiKey && p.apiKey.trim().length > 0),
-            })
-          }
-        }
-      }
-
       return { success: true }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
@@ -516,52 +490,4 @@ export function registerSettingsHandlers(): void {
     }
   })
 
-  /** 启动或打开工作区后：若配置标记已完成供应商设置，则用磁盘配置 + 本地密钥自动测通一次 */
-  ipcMain.handle(SETTINGS_WORKSPACE_VERIFY, async (_event, workspaceRoot: string) => {
-    try {
-      if (!workspaceRoot || typeof workspaceRoot !== 'string') {
-        return { success: false, skipped: true as const, error: '无效的工作区路径' }
-      }
-      const root = workspaceRoot.trim()
-      if (!root) {
-        return { success: false, skipped: true as const, error: '无效的工作区路径' }
-      }
-
-      const fileCfg = ensureWorkspaceConfig(root)
-      if (!fileCfg.supplier.setupComplete) {
-        return { success: true, skipped: true as const }
-      }
-
-      const providers = (store.get('providers') || []) as ProviderConfig[]
-      const activeId = store.get('activeProvider')
-      const p = providers.find((x) => x.id === activeId) ?? providers[0]
-      if (!p?.apiKey?.trim()) {
-        return { success: true, skipped: true as const }
-      }
-
-      const merged: ProviderConfig = {
-        ...p,
-        name: fileCfg.supplier.name || p.name,
-        type: fileCfg.supplier.type,
-        model: fileCfg.supplier.model || p.model,
-        baseUrl:
-          fileCfg.supplier.type === 'anthropic'
-            ? p.baseUrl
-            : fileCfg.supplier.baseUrl !== ''
-              ? fileCfg.supplier.baseUrl
-              : p.baseUrl,
-      }
-
-      const result = await runProviderConnectivityTest({
-        ...merged,
-        apiKey: resolveApiKeyForTest(merged),
-      })
-      updateSupplierConnectionStatus(root, result.success, result.error)
-      return { ...result, skipped: false as const }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      log.error('SETTINGS_WORKSPACE_VERIFY failed', err)
-      return { success: false, skipped: false as const, error: message }
-    }
-  })
 }

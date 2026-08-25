@@ -7,7 +7,8 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useSessionContextStore } from '../../stores/sessionContextStore'
 import { useFileStore } from '../../stores/fileStore'
-import { useEditorStore } from '../../stores/editorStore'
+import { normalizeDocumentPath, useEditorStore } from '../../stores/editorStore'
+import { useReviewStore } from '../../stores/reviewStore'
 import type { AgentStatus, Message } from '../../stores/chatStore'
 
 import { MessageLine } from './MessageLine'
@@ -42,6 +43,7 @@ import {
 } from '../../../../shared/context-budget'
 import { shouldAutoCompress } from '../../../../shared/history-compress'
 import type { FileInfo } from '../../../../shared/types'
+import { buildReviewAgentContext, shouldInjectReviewContext } from '../../utils/reviewAgentContext'
 
 const WORKING_HINTS = [
   '思考中...',
@@ -871,8 +873,20 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
       for (const p of attachmentPaths) {
         footnoteParts.push(`@${p.split(/[/\\]/).pop() ?? p}`)
       }
+      let reviewContext: string | null = null
+      if (currentPath && shouldInjectReviewContext(llmBody, explicitSkillNames)) {
+        const reviewDocument = useReviewStore.getState().documents[normalizeDocumentPath(currentPath)]
+        reviewContext = buildReviewAgentContext(currentPath, reviewDocument?.sidecar.comments ?? [])
+        if (reviewContext) {
+          const openCount = reviewDocument!.sidecar.comments.filter((comment) => comment.status === 'open').length
+          footnoteParts.push(`@批注(${openCount})`)
+        }
+      }
       const contextFootnote = footnoteParts.length > 0 ? footnoteParts.join(' · ') : undefined
 
+      if (reviewContext) {
+        preface = reviewContext
+      }
       if (quotes.length > 0) {
         const quoteBlocks = quotes.map((q, i) => {
           const label = q.sourceLabel ?? quoteBasename ?? '编辑器'

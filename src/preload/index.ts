@@ -54,6 +54,13 @@ const electronAPI = {
       ipcRenderer.on(IPC_CHANNELS.FILE_WORKSPACE_SCAN_EVENT, listener)
       return () => ipcRenderer.removeListener(IPC_CHANNELS.FILE_WORKSPACE_SCAN_EVENT, listener)
     },
+    watchWorkspace: (root: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_WATCH_WORKSPACE, root),
+    stopWorkspaceWatch: (watchId: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_STOP_WORKSPACE_WATCH, watchId),
+    onWorkspaceChange: (callback: (event: import('../shared/types').WorkspaceChangeEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: import('../shared/types').WorkspaceChangeEvent) => callback(payload)
+      ipcRenderer.on(IPC_CHANNELS.FILE_WORKSPACE_CHANGE_EVENT, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.FILE_WORKSPACE_CHANGE_EVENT, listener)
+    },
     read: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath),
     readText: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_READ_TEXT, filePath),
     readStream: (filePath: string, callback: (chunk: string | null) => void) => {
@@ -79,8 +86,6 @@ const electronAPI = {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET),
     testConnection: (config: unknown) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_TEST_CONNECTION, config),
     listModels: (config: unknown) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_LIST_MODELS, config),
-    workspaceVerify: (workspaceRoot: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_WORKSPACE_VERIFY, workspaceRoot),
   },
   agent: {
     send: (message: string, context?: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_SEND, message, context),

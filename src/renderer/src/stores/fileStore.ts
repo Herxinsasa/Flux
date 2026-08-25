@@ -5,8 +5,8 @@ import { useSessionContextStore } from './sessionContextStore'
 import type {
   LogIndexTaskEvent,
   TextDocumentSnapshot,
-  WorkspaceConfigFilePayload,
   WorkspaceFileEntry,
+  WorkspaceChangeEvent,
   WorkspaceScanEvent,
 } from '../../../shared/types'
 import { EDITOR_LARGE_FILE_BYTES, EDITOR_SAMPLE_LINES } from '../../../shared/context-budget'
@@ -17,6 +17,9 @@ const _loadingPaths = new Set<string>()
 /** Active renderer-side stream subscriptions keyed by file path. */
 const _streamUnsubs = new Map<string, () => void>()
 let _workspaceScanUnsub: (() => void) | null = null
+let _workspaceWatchUnsub: (() => void) | null = null
+let _workspaceWatchId: string | null = null
+let _workspaceRefreshTimer: number | null = null
 let _logIndexUnsub: (() => void) | null = null
 let _logIndexRequestVersion = 0
 let _navigationRequestVersion = 0
@@ -28,6 +31,43 @@ function mergeWorkspaceEntries(
   const byPath = new Map(current.map((entry) => [entry.path, entry]))
   for (const entry of entries) byPath.set(entry.path, entry)
   return [...byPath.values()].sort((a, b) => a.relativePath.localeCompare(b.relativePath, undefined, { sensitivity: 'base' }))
+}
+
+function stopWorkspaceWatch(): void {
+  if (_workspaceRefreshTimer != null) globalThis.clearTimeout(_workspaceRefreshTimer)
+  _workspaceRefreshTimer = null
+  _workspaceWatchUnsub?.()
+  _workspaceWatchUnsub = null
+  if (_workspaceWatchId) void window.electronAPI.file.stopWorkspaceWatch(_workspaceWatchId)
+  _workspaceWatchId = null
+}
+
+async function beginWorkspaceWatch(root: string, get: () => FileState): Promise<void> {
+  stopWorkspaceWatch()
+  const queued: WorkspaceChangeEvent[] = []
+  const applyChange = (event: WorkspaceChangeEvent) => {
+    if (event.root !== root || get().workspaceRoot !== root) return
+    if (_workspaceWatchId && event.watchId !== _workspaceWatchId) return
+    if (_workspaceRefreshTimer != null) globalThis.clearTimeout(_workspaceRefreshTimer)
+    _workspaceRefreshTimer = globalThis.setTimeout(() => {
+      _workspaceRefreshTimer = null
+      if (get().workspaceRoot === root) void get().startWorkspaceScan(root)
+    }, 250)
+  }
+  const unsubscribe = window.electronAPI.file.onWorkspaceChange((event) => {
+    if (_workspaceWatchId) applyChange(event)
+    else queued.push(event)
+  })
+  _workspaceWatchUnsub = unsubscribe
+  const response = await window.electronAPI.file.watchWorkspace(root)
+  if (!response.success || !response.data || get().workspaceRoot !== root) {
+    unsubscribe()
+    if (_workspaceWatchUnsub === unsubscribe) _workspaceWatchUnsub = null
+    if (response.data) void window.electronAPI.file.stopWorkspaceWatch(response.data.taskId)
+    return
+  }
+  _workspaceWatchId = response.data.taskId
+  queued.forEach(applyChange)
 }
 
 export interface FileEntry {
@@ -92,10 +132,6 @@ interface FileState {
   isLoading: boolean
   /** 当前打开的工作区根路径（打开文件夹） */
   workspaceRoot: string | null
-  /** 工作区内 config/config.json 快照（打开文件夹时由主进程写入/创建） */
-  workspaceConfig: WorkspaceConfigFilePayload | null
-  /** 每次成功打开文件夹递增，用于触发自动连通性检测 */
-  workspaceOpenNonce: number
   /** 工作区内扫描到的文件列表 */
   workspaceFiles: WorkspaceFileEntry[]
   workspaceScanTaskId: string | null
@@ -252,8 +288,6 @@ export const useFileStore = create<FileState>((set, get) => ({
   mru: [],
   isLoading: false,
   workspaceRoot: null,
-  workspaceConfig: null,
-  workspaceOpenNonce: 0,
   workspaceFiles: [],
   workspaceScanTaskId: null,
   workspaceScanVersion: 0,
@@ -361,7 +395,8 @@ export const useFileStore = create<FileState>((set, get) => ({
       )
 
       if (!shouldClearRuntimeState) {
-        set({ workspaceRoot: null, workspaceFiles: [], workspaceConfig: null })
+        stopWorkspaceWatch()
+        set({ workspaceRoot: null, workspaceFiles: [] })
         return
       }
 
@@ -369,7 +404,8 @@ export const useFileStore = create<FileState>((set, get) => ({
         if (!(await confirmUnsavedDocument(filePath))) return
       }
 
-      set({ workspaceRoot: null, workspaceFiles: [], workspaceConfig: null })
+      stopWorkspaceWatch()
+      set({ workspaceRoot: null, workspaceFiles: [] })
       for (const [, unsub] of _streamUnsubs) {
         try {
           unsub()
@@ -416,17 +452,15 @@ export const useFileStore = create<FileState>((set, get) => ({
         set({ workspaceScanStatus: 'error', workspaceScanError: error })
         return
       }
-      const { root: workspaceRoot, files, workspaceConfig } = res.data as {
+      const { root: workspaceRoot, files } = res.data as {
         root: string
         files: WorkspaceFileEntry[]
-        workspaceConfig?: WorkspaceConfigFilePayload
       }
-      set((state) => ({
+      set({
         workspaceRoot,
         workspaceFiles: files ?? [],
-        workspaceConfig: workspaceConfig ?? null,
-        workspaceOpenNonce: state.workspaceOpenNonce + 1,
-      }))
+      })
+      await beginWorkspaceWatch(workspaceRoot, get)
       await get().startWorkspaceScan(workspaceRoot)
       void window.electronAPI.recent.record(workspaceRoot, 'folder')
       void useSessionContextStore.getState().loadWorkspaceSession(workspaceRoot)

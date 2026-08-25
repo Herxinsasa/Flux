@@ -29,6 +29,7 @@ import { createSourceMarkdownEdit, type MarkdownCommandId } from './sourceMarkdo
 import { registerEditorDraftBuffer } from '../../utils/editorDraftBuffer'
 import { WysiwygReviewComposer } from './WysiwygReviewComposer'
 import { getMarkdownZoomAction } from '../../hooks/useShortcuts'
+import { listenForMarkdownCommands } from './markdownCommandEvents'
 
 /* ── Main editor pane ────────────────────────────────────────────── */
 
@@ -250,6 +251,11 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
     })
     editorView.focus()
   }, [composeReview, editorView, quoteSelectionToChat])
+
+  useEffect(() => {
+    if (mode !== 'markdown' || isReadOnly) return
+    return listenForMarkdownCommands(runMarkdownCommand)
+  }, [isReadOnly, mode, runMarkdownCommand])
 
   const scheduleReviewReanchor = useCallback(() => {
     if (!currentFile || !reviewDocument?.sidecar.comments.length) return
