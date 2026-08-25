@@ -37,6 +37,9 @@ export function registerAttachmentBackupHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.BACKUP_DISCARD, async (_event, snapshotId: string): Promise<IpcResponse> => {
     try { return { success: true, data: { discarded: await backupService.discard(snapshotId) } } } catch (error) { return responseError(error) }
   })
+  ipcMain.handle(IPC_CHANNELS.BACKUP_DISCARD_SOURCE, async (_event, sourcePath: string): Promise<IpcResponse> => {
+    try { return { success: true, data: { discarded: await backupService.discardSource(sourcePath) } } } catch (error) { return responseError(error) }
+  })
   ipcMain.handle(IPC_CHANNELS.BACKUP_SAVE_AS, async (event, request: SaveBackupAsRequest): Promise<IpcResponse> => {
     try {
       const snapshot = await backupService.read(request.snapshotId)

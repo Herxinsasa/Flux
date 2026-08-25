@@ -8,9 +8,10 @@ import {
 } from '../../src/renderer/src/utils/unsavedChangesGuard'
 
 const saveText = vi.fn()
+const discardSource = vi.fn()
 
 vi.stubGlobal('window', {
-  electronAPI: { file: { saveText } },
+  electronAPI: { file: { saveText }, backup: { discardSource } },
   alert: vi.fn(),
   confirm: vi.fn(),
 })
@@ -31,6 +32,8 @@ describe('unsaved document guard', () => {
   beforeEach(() => {
     useEditorStore.setState({ activeDocumentPath: null, documentSessions: {}, content: '', isDirty: false })
     saveText.mockReset()
+    discardSource.mockReset()
+    discardSource.mockResolvedValue({ success: true, data: { discarded: 1 } })
   })
 
   it('keeps the draft when the user cancels', async () => {
@@ -47,6 +50,8 @@ describe('unsaved document guard', () => {
     await expect(confirmUnsavedDocument('C:\\docs\\note.md')).resolves.toBe(true)
     expect(useEditorStore.getState().content).toBe('# saved')
     expect(useEditorStore.getState().isDirty).toBe(false)
+    expect(useEditorStore.getState().documentSessions['c:/docs/note.md']).toBeUndefined()
+    expect(discardSource).toHaveBeenCalledWith('C:\\docs\\note.md')
     unregister()
   })
 
@@ -60,6 +65,7 @@ describe('unsaved document guard', () => {
     await expect(confirmUnsavedDocument('C:\\docs\\note.md')).resolves.toBe(true)
     expect(saveText).toHaveBeenCalledOnce()
     expect(useEditorStore.getState().isDirty).toBe(false)
+    expect(discardSource).toHaveBeenCalledWith('C:\\docs\\note.md')
     unregister()
   })
 

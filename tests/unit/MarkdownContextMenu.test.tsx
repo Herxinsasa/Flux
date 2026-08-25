@@ -1,10 +1,23 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MarkdownContextMenu } from '../../src/renderer/src/components/editor/MarkdownContextMenu'
+import {
+  clampMenuPosition,
+  getSubmenuOffsetY,
+  MarkdownContextMenu,
+} from '../../src/renderer/src/components/editor/MarkdownContextMenu'
 
 afterEach(cleanup)
 
 describe('MarkdownContextMenu', () => {
+  it('keeps the main menu inside the viewport', () => {
+    expect(clampMenuPosition(790, 590, 196, 200, 800, 600)).toEqual({ x: 596, y: 392 })
+  })
+
+  it('moves submenus away from viewport edges', () => {
+    expect(getSubmenuOffsetY({ top: 450, bottom: 650 }, 600)).toBe(-58)
+    expect(getSubmenuOffsetY({ top: -10, bottom: 200 }, 600)).toBe(18)
+  })
+
   it('disables selection and AI dependent actions when unavailable', () => {
     render(
       <MarkdownContextMenu

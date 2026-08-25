@@ -1,5 +1,6 @@
 import { normalizeDocumentPath, useEditorStore } from '../stores/editorStore'
 import { saveDocument } from './documentSave'
+import { discardDocumentBackup } from './documentBackup'
 
 export type UnsavedDecision = 'save' | 'saved' | 'discard' | 'cancel'
 export type UnsavedPrompt = (filePath: string) => Promise<UnsavedDecision>
@@ -29,6 +30,8 @@ export async function confirmUnsavedDocument(filePath: string): Promise<boolean>
   if (decision === 'saved') return true
   if (decision === 'save') return saveDocument(filePath)
   useEditorStore.getState().discardDocumentChanges(filePath)
+  useEditorStore.getState().removeDocument(filePath)
+  await discardDocumentBackup(filePath)
   return true
 }
 

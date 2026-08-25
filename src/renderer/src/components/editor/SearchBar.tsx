@@ -174,7 +174,7 @@ export function SearchBar({ editorView, visible, onClose }: SearchBarProps) {
     border: 'none',
     outline: 'none',
     background: 'transparent',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-ui)',
     fontSize: 12,
     color: 'var(--text-primary)',
   }
@@ -330,7 +330,7 @@ export function SearchBar({ editorView, visible, onClose }: SearchBarProps) {
         {matchDisplay ? (
           <span
             style={{
-              fontFamily: 'var(--font-mono)',
+              fontFamily: 'var(--font-ui)',
               fontSize: 11,
               color: 'var(--text-tertiary)',
               whiteSpace: 'nowrap',

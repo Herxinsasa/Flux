@@ -72,10 +72,10 @@ export function DropZone() {
     >
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 py-10">
         <div className="flex items-center gap-2">
-          <button type="button" onClick={importFile} className="flex items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--accent)] px-3 py-2 text-sm text-white">
+          <button type="button" onClick={importFile} className="btn-accent">
             <FilePlus2 size={16} aria-hidden /> 打开文件
           </button>
-          <button type="button" onClick={() => void openFolder()} className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] px-3 py-2 text-sm">
+          <button type="button" onClick={() => void openFolder()} className="flux-btn-secondary">
             <FolderOpen size={16} aria-hidden /> 打开文件夹
           </button>
         </div>

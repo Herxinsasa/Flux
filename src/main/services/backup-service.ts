@@ -122,8 +122,13 @@ export class BackupService {
   }
 
   async list(sourcePath?: string): Promise<BackupSnapshotSummary[]> {
-    const manifest = await this.loadManifest()
-    return manifest.snapshots.filter((item) => !sourcePath || item.sourcePath === sourcePath).sort((a, b) => b.createdAt - a.createdAt)
+    return this.enqueue(async () => {
+      const manifest = await this.loadManifest()
+      const before = manifest.snapshots.length
+      await this.prune(manifest)
+      if (manifest.snapshots.length !== before) await this.saveManifest(manifest)
+      return manifest.snapshots.filter((item) => !sourcePath || item.sourcePath === sourcePath).sort((a, b) => b.createdAt - a.createdAt)
+    })
   }
 
   async read(snapshotId: string): Promise<BackupSnapshotContent | null> {
@@ -150,9 +155,8 @@ export class BackupService {
 
         const hasRecordedBaseline = typeof snapshot.sourceVersionHash === 'string' && snapshot.sourceVersionHash.length > 0
         const baselineMatches = hasRecordedBaseline && snapshot.sourceVersionHash === current.version.contentHash
-        const baselineChanged = hasRecordedBaseline && snapshot.sourceVersionHash !== current.version.contentHash
         const legacySnapshotIsCurrent = !hasRecordedBaseline && snapshot.createdAt >= current.version.mtimeMs
-        if (baselineMatches || baselineChanged || legacySnapshotIsCurrent) {
+        if (baselineMatches || legacySnapshotIsCurrent) {
           candidates.push({ ...snapshot, sourceExists: true })
         }
       } catch (error: any) {
@@ -171,6 +175,18 @@ export class BackupService {
       await fs.rm(this.snapshotPath(snapshotId), { force: true })
       await this.saveManifest(manifest)
       return true
+    })
+  }
+
+  async discardSource(sourcePath: string): Promise<number> {
+    return this.enqueue(async () => {
+      const manifest = await this.loadManifest()
+      const removed = manifest.snapshots.filter((item) => item.sourcePath === sourcePath)
+      if (removed.length === 0) return 0
+      manifest.snapshots = manifest.snapshots.filter((item) => item.sourcePath !== sourcePath)
+      await Promise.all(removed.map((item) => fs.rm(this.snapshotPath(item.id), { force: true })))
+      await this.saveManifest(manifest)
+      return removed.length
     })
   }
 

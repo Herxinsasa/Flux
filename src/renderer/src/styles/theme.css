@@ -548,10 +548,14 @@
   padding-bottom: 8px;
 }
 
+.markdown-preview .markdown-frontmatter-meta-block + h1 {
+  margin-top: 20px;
+}
+
 .markdown-preview h2 {
   font-size: 22px;
   font-weight: 600;
-  margin: 20px 0 12px;
+  margin: 20px 0 15px;
 }
 
 .markdown-preview h3 {
@@ -620,6 +624,11 @@ svg.lucide {
 .markdown-context-group { position: relative; }
 .markdown-context-submenu { position: absolute; top: -5px; left: calc(100% + 5px); }
 .markdown-context-submenu--left { right: calc(100% + 5px); left: auto; }
+
+.markdown-context-submenu {
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
 
 .markdown-preview h5 {
   font-size: 14px;
@@ -745,7 +754,7 @@ svg.lucide {
   border-collapse: collapse;
   width: 100%;
   max-width: 100%;
-  margin: 12px 0;
+  margin: 15px 0;
   table-layout: fixed;
 }
 
@@ -973,7 +982,7 @@ svg.lucide {
   border: 1px solid var(--border-visible) !important;
   border-radius: 6px !important;
   padding: 7px 11px !important;
-  font-family: var(--font-mono) !important;
+  font-family: var(--font-ui) !important;
   font-size: var(--font-size-app-xs) !important;
   transition: all var(--transition-fast) !important;
   min-width: 200px !important;
@@ -2178,7 +2187,7 @@ svg.lucide {
 .flux-milkdown-root .ProseMirror {
   box-sizing: border-box;
   width: 100%;
-  max-width: 920px;
+  max-width: 1100px;
   min-height: 100%;
   margin: 0 auto;
   padding: 16px var(--markdown-content-gutter) 64px;
@@ -2255,6 +2264,16 @@ svg.lucide {
   white-space: pre-wrap;
 }
 
+.flux-milkdown-root .flux-frontmatter-block + h1 {
+  margin-top: 20px;
+}
+
+/* Show source soft-break boundaries without changing the saved Markdown. */
+.flux-milkdown-root span[data-type='hardbreak'][data-is-inline='true'] {
+  display: block;
+  height: 0;
+}
+
 [data-theme='light'] .flux-milkdown-root .flux-frontmatter-block {
   background: #f7f7f7;
   border-color: #e5e5e5;
@@ -2324,7 +2343,7 @@ svg.lucide {
   font-size: 1.571em;
   font-weight: 600;
   line-height: 1.7;
-  margin: 1.25em 0 0.75em;
+  margin: 1.25em 0 15px;
 }
 
 .flux-milkdown-root .ProseMirror h3 {

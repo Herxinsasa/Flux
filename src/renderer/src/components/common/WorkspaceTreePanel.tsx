@@ -56,7 +56,7 @@ function WorkspaceNodes({
               key={node.path}
               type="button"
               onClick={() => void onOpenFile(node.path)}
-              className={`w-full text-left rounded-[var(--radius-sm)] text-app-sm cursor-pointer transition-colors duration-[var(--transition-fast)] flex items-center gap-2 font-[var(--font-mono)] ${
+              className={`w-full text-left rounded-[var(--radius-sm)] text-app-sm cursor-pointer transition-colors duration-[var(--transition-fast)] flex items-center gap-2 font-[var(--font-ui)] ${
                 isActive
                   ? 'bg-[var(--selection)] text-[var(--text-primary)]'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--hover)]'
@@ -78,7 +78,7 @@ function WorkspaceNodes({
             <button
               type="button"
               onClick={() => toggleDir(node.pathKey)}
-              className="w-full text-left rounded-[var(--radius-sm)] text-app-sm cursor-pointer transition-colors duration-[var(--transition-fast)] flex items-center gap-1 font-[var(--font-mono)] text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-[var(--text-primary)] border-0 bg-transparent"
+              className="w-full text-left rounded-[var(--radius-sm)] text-app-sm cursor-pointer transition-colors duration-[var(--transition-fast)] flex items-center gap-1 font-[var(--font-ui)] text-[var(--text-secondary)] hover:bg-[var(--hover)] hover:text-[var(--text-primary)] border-0 bg-transparent"
               style={{ padding: '8px 6px', paddingLeft: 4 + depth * 12 }}
               title={node.pathKey}
             >

@@ -74,6 +74,7 @@ export interface WorkspaceScanEvent {
 export interface WorkspaceChangeEvent {
   watchId: string
   root: string
+  changedPaths: string[]
 }
 
 export interface WorkspaceOpenData {

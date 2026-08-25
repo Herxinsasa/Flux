@@ -142,7 +142,7 @@ export function LogViewer() {
         style={{ padding: '8px 6px' }}
       >
         <span
-          className="font-[var(--font-mono)] text-[12px] leading-none font-normal text-[var(--accent)]"
+          className="font-[var(--font-ui)] text-app-sm leading-none font-normal text-[var(--accent)]"
         >
           {currentFileName}
         </span>

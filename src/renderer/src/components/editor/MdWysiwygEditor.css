@@ -14,8 +14,8 @@
 
 .flux-milkdown-editor .milkdown-table-block {
   position: relative;
-  margin: 1.25em 0;
-  padding: 12px 0 0 12px;
+  margin: 15px 0;
+  padding: 6px 0 0 12px;
 }
 
 .flux-milkdown-editor .milkdown-table-block .table-wrapper {
@@ -101,7 +101,7 @@
 }
 
 .flux-table-size-popover>div { display: grid; grid-template-columns: 18px 1fr 28px 30px 28px; align-items: center; gap: 4px; color: var(--text-secondary); font: 12px var(--font-ui); }
-.flux-table-size-popover output { text-align: center; color: var(--text-primary); font: 12px var(--font-mono); }
+.flux-table-size-popover output { text-align: center; color: var(--text-primary); font: 12px var(--font-ui); }
 .flux-table-size-popover button:disabled { opacity: .35; cursor: default; }
 
 .flux-milkdown-editor .milkdown-table-block .cell-handle {

@@ -40,6 +40,7 @@ const electronAPI = {
     read: (snapshotId: string) => ipcRenderer.invoke(IPC_CHANNELS.BACKUP_READ, snapshotId),
     recoveries: (sourcePath?: string) => ipcRenderer.invoke(IPC_CHANNELS.BACKUP_RECOVERIES, sourcePath),
     discard: (snapshotId: string) => ipcRenderer.invoke(IPC_CHANNELS.BACKUP_DISCARD, snapshotId),
+    discardSource: (sourcePath: string) => ipcRenderer.invoke(IPC_CHANNELS.BACKUP_DISCARD_SOURCE, sourcePath),
     saveAs: (request: import('../shared/attachment-backup').SaveBackupAsRequest) => ipcRenderer.invoke(IPC_CHANNELS.BACKUP_SAVE_AS, request),
   },
   file: {

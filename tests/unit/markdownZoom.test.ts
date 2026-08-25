@@ -4,6 +4,7 @@ import {
   getMarkdownShortcutCommand,
   getMarkdownZoomAction,
   getMarkdownZoomPercent,
+  shouldUseNativeWysiwygMarkShortcut,
 } from '../../src/renderer/src/hooks/useShortcuts'
 import { useEditorStore } from '../../src/renderer/src/stores/editorStore'
 import {
@@ -37,6 +38,21 @@ describe('Markdown content zoom', () => {
     expect(getMarkdownShortcutCommand(key('K', true))).toBe('insert-code-block')
     expect(getMarkdownShortcutCommand(key('&', true, 'Digit7'))).toBe('ordered-list')
     expect(getMarkdownShortcutCommand(key('0'))).toBeNull()
+  })
+
+  it('delegates WYSIWYG bold and italic shortcuts to Milkdown without affecting source commands', () => {
+    const editor = document.createElement('div')
+    editor.className = 'flux-milkdown-root'
+    const proseMirror = document.createElement('div')
+    proseMirror.className = 'ProseMirror'
+    const paragraph = document.createElement('p')
+    proseMirror.appendChild(paragraph)
+    editor.appendChild(proseMirror)
+
+    expect(shouldUseNativeWysiwygMarkShortcut('bold', 'wysiwyg', paragraph)).toBe(true)
+    expect(shouldUseNativeWysiwygMarkShortcut('italic', 'wysiwyg', paragraph)).toBe(true)
+    expect(shouldUseNativeWysiwygMarkShortcut('bold', 'source', paragraph)).toBe(false)
+    expect(shouldUseNativeWysiwygMarkShortcut('insert-link', 'wysiwyg', paragraph)).toBe(false)
   })
 
   it('zooms live and source editing together and reports the shared percentage', () => {

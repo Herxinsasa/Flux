@@ -54,3 +54,10 @@ This repository uses DevFlow for iteration development.
 - For implementation and review, use independent agents with prompts from `.agents/agents/implementer.md` and `.agents/agents/code-reviewer.md`. If independent agents are unavailable, report the DevFlow blocker instead of silently replacing them inline.
 - Update `.claude/progress.json` at every stage boundary without discarding milestone history.
 - GitNexus impact analysis remains mandatory before editing code symbols, and change detection remains mandatory before commit.
+
+## Bug Fix Confirmation Gate
+
+- For every bug report, first investigate and present the confirmed root cause, evidence, affected scope, and proposed fix.
+- Do not modify code, tests, configuration, or styles for the bug until the user explicitly confirms the analysis and authorizes implementation.
+- If several bugs are reported together, obtain confirmation for the analyzed batch before implementing any item in that batch.
+- After confirmation, implement only the approved scope, then run the relevant regression checks.

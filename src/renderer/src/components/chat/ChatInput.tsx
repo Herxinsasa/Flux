@@ -434,7 +434,7 @@ export function ChatInput({
           {quotes.map((q) => (
             <span
               key={q.id}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-[var(--bg-card)] border border-[var(--border-visible)] text-[var(--accent)] max-w-full"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-[var(--font-ui)] bg-[var(--bg-card)] border border-[var(--border-visible)] text-[var(--accent)] max-w-full"
             >
               <span className="truncate" title={q.sourceLabel ?? quoteSourceLabel ?? '编辑器'}>
                 @{q.sourceLabel ?? quoteSourceLabel ?? '编辑器'}
@@ -457,7 +457,7 @@ export function ChatInput({
           {skillInvocations.map((name) => (
             <span
               key={name}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-[var(--bg-card)] border border-[var(--border-visible)] text-[var(--accent)] max-w-full"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-[var(--font-ui)] bg-[var(--bg-card)] border border-[var(--border-visible)] text-[var(--accent)] max-w-full"
             >
               <span className="truncate" title={name}>
                 /{name}
@@ -479,7 +479,7 @@ export function ChatInput({
           {attachments.map((p) => (
             <span
               key={p}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-secondary)] max-w-full"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-[var(--font-ui)] bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-secondary)] max-w-full"
             >
               <span className="truncate" title={p}>
                 @{p.split(/[/\\]/).pop()}
@@ -517,7 +517,7 @@ export function ChatInput({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pickSlashSkill(s.name)}
             >
-              <span className="font-mono text-[var(--accent)]">/{s.name}</span>
+              <span className="font-[var(--font-ui)] text-[var(--accent)]">/{s.name}</span>
               {s.description ? (
                 <span className="block text-[10px] text-[var(--text-hint)] truncate mt-0.5">
                   {s.description}
@@ -539,7 +539,7 @@ export function ChatInput({
               type="button"
               role="option"
               aria-selected={i === atHighlight}
-              className={`w-full text-left px-2 py-1.5 text-app-xs font-mono truncate hover:bg-[var(--hover)] ${
+              className={`w-full text-left px-2 py-1.5 text-app-xs font-[var(--font-ui)] truncate hover:bg-[var(--hover)] ${
                 i === atHighlight ? 'bg-[var(--selection)]' : ''
               }`}
               onMouseDown={(e) => e.preventDefault()}

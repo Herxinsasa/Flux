@@ -73,6 +73,7 @@ interface WorkspaceScanTask {
 interface WorkspaceWatchTask {
   watcher: fs.FSWatcher
   timer: NodeJS.Timeout | null
+  changedPaths: Set<string>
 }
 
 const workspaceScanTasks = new Map<string, WorkspaceScanTask>()
@@ -245,22 +246,28 @@ export function cancelWorkspaceScan(taskId: string): boolean {
  * Watch a Windows workspace recursively and collapse bursty filesystem events
  * into one refresh notification. The watcher never writes inside the workspace.
  */
-export function startWorkspaceWatch(rootDir: string, onChange: (watchId: string, root: string) => void): TaskStartData {
+export function startWorkspaceWatch(
+  rootDir: string,
+  onChange: (watchId: string, root: string, changedPaths: string[]) => void,
+): TaskStartData {
   const root = path.resolve(rootDir)
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
     throw new Error('Invalid workspace root')
   }
 
   const watchId = nextWatchId()
-  const task: WorkspaceWatchTask = { watcher: null as unknown as fs.FSWatcher, timer: null }
+  const task: WorkspaceWatchTask = { watcher: null as unknown as fs.FSWatcher, timer: null, changedPaths: new Set() }
   const watcher = fs.watch(root, { recursive: true }, (_eventType, fileName) => {
     const relativePath = fileName?.toString().split(path.sep).join('/') ?? ''
     if (relativePath.split('/').some((part) => shouldIgnoreDirectory(part))) return
     if (relativePath.endsWith('.review.json')) return
+    if (relativePath) task.changedPaths.add(path.resolve(root, relativePath))
     if (task.timer) clearTimeout(task.timer)
     task.timer = setTimeout(() => {
       task.timer = null
-      onChange(watchId, root)
+      const changedPaths = [...task.changedPaths]
+      task.changedPaths.clear()
+      onChange(watchId, root, changedPaths)
     }, 180)
   })
   task.watcher = watcher

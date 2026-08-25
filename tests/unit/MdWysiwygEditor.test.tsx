@@ -41,6 +41,7 @@ vi.mock('@milkdown/kit/core', () => ({
   commandsCtx: {},
   defaultValueCtx: {},
   editorViewCtx: {},
+  remarkStringifyOptionsCtx: {},
   rootCtx: {},
   serializerCtx: {},
 }))

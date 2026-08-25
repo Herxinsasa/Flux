@@ -132,8 +132,8 @@ export function MarkdownEditor() {
         {currentFileName && (
           <span
             style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 13,
+              fontFamily: 'var(--font-ui)',
+              fontSize: 14,
               color: 'var(--accent)',
               marginRight: 4,
               maxWidth: 200,
@@ -180,8 +180,8 @@ export function MarkdownEditor() {
               width: 48,
               textAlign: 'center',
               color: 'var(--text-secondary)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 13,
+              fontFamily: 'var(--font-ui)',
+              fontSize: 14,
               fontVariantNumeric: 'tabular-nums',
             }}
             aria-label={`当前内容缩放 ${zoomPercent}%`}

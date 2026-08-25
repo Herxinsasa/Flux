@@ -50,6 +50,8 @@ import {
 import { findTextRangeInProseMirror } from './wysiwygReviewPosition'
 import { plainHeadingText } from '../../utils/markdownHeadingIds'
 import { listenForMarkdownCommands } from './markdownCommandEvents'
+import { registerWysiwygLineBreakStringify } from './wysiwygLineBreaks'
+import { isTableCellSelection, placeTableCaretFromPointer } from './wysiwygTableInteractions'
 
 interface MdWysiwygEditorProps {
   fileKey: string
@@ -183,6 +185,10 @@ function MdWysiwygEditorInner({
     const markUserEdit = () => {
       userEditRef.current = true
     }
+    const placeTableCaret = (event: PointerEvent) => {
+      const view = viewRef.current
+      if (view) placeTableCaretFromPointer(view, event)
+    }
     const saveSurfaceState = () => {
       const view = viewRef.current
       const currentScrollContainer = getEditorScrollContainer(root)
@@ -243,6 +249,7 @@ function MdWysiwygEditorInner({
         // 避免 `---` 被解析为 hr + setext 标题
         registerFrontmatterParsing(ctx)
         registerFrontmatterStringify(ctx)
+        registerWysiwygLineBreakStringify(ctx)
       })
       // 任务列表键盘处理需先于 commonmark 的通用列表 Enter 快捷键注册。
       .use(taskListPlugin)
@@ -284,6 +291,7 @@ function MdWysiwygEditorInner({
           root.addEventListener('keydown', markUserEdit)
           root.addEventListener('paste', markUserEdit)
           root.addEventListener('drop', markUserEdit)
+          root.addEventListener('pointerdown', placeTableCaret, true)
           scrollContainer?.addEventListener('scroll', saveSurfaceState, { passive: true })
         }
         unsubscribeStore = useEditorStore.subscribe((state, previousState) => {
@@ -323,6 +331,7 @@ function MdWysiwygEditorInner({
       root.removeEventListener('keydown', markUserEdit)
       root.removeEventListener('paste', markUserEdit)
       root.removeEventListener('drop', markUserEdit)
+      root.removeEventListener('pointerdown', placeTableCaret, true)
       scrollContainer?.removeEventListener('scroll', saveSurfaceState)
       disposed = true
       unsubscribeStore?.()
@@ -388,8 +397,10 @@ function MdWysiwygEditorInner({
     else if (command === 'left' || command === 'center' || command === 'right') {
       const view = viewRef.current
       if (!view) return
-      const columnIndex = selectedRect(view.state).left
-      editor.action(callCommand(selectColCommand.key, { index: columnIndex, pos: view.state.selection.from }))
+      if (!isTableCellSelection(view.state.selection)) {
+        const columnIndex = selectedRect(view.state).left
+        editor.action(callCommand(selectColCommand.key, { index: columnIndex, pos: view.state.selection.from }))
+      }
       editor.action(callCommand(setAlignCommand.key, command))
     }
     else {

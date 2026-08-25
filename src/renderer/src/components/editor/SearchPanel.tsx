@@ -211,7 +211,7 @@ export function SearchPanel({ view, onClose }: SearchPanelProps) {
     border: '1px solid var(--border-visible)',
     borderRadius: 6,
     padding: '6px 10px',
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-ui)',
     fontSize: 'var(--font-size-app-xs)',
     outline: 'none',
     caretColor: 'var(--accent)',

@@ -66,6 +66,29 @@ export interface MarkdownContextMenuProps {
   onCommand: (command: MarkdownCommandId) => void
 }
 
+export function clampMenuPosition(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  viewportWidth = window.innerWidth,
+  viewportHeight = window.innerHeight,
+) {
+  return {
+    x: Math.max(8, Math.min(x, viewportWidth - width - 8)),
+    y: Math.max(8, Math.min(y, viewportHeight - height - 8)),
+  }
+}
+
+export function getSubmenuOffsetY(
+  rect: Pick<DOMRect, 'top' | 'bottom'>,
+  viewportHeight = window.innerHeight,
+): number {
+  if (rect.bottom > viewportHeight - 8) return viewportHeight - 8 - rect.bottom
+  if (rect.top < 8) return 8 - rect.top
+  return 0
+}
+
 export function MarkdownContextMenu({
   x,
   y,
@@ -77,18 +100,26 @@ export function MarkdownContextMenu({
   onCommand,
 }: MarkdownContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
+  const submenuRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ x, y })
   const [openGroup, setOpenGroup] = useState<string | null>(null)
-  const submenuLeft = x > window.innerWidth - 430
+  const [submenuOffsetY, setSubmenuOffsetY] = useState(0)
+  const submenuLeft = position.x > window.innerWidth - 430
 
   useLayoutEffect(() => {
     const rect = menuRef.current?.getBoundingClientRect()
     if (!rect) return
-    setPosition({
-      x: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
-      y: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)),
-    })
+    setPosition(clampMenuPosition(x, y, rect.width, rect.height))
   }, [x, y])
+
+  useLayoutEffect(() => {
+    if (!openGroup) {
+      setSubmenuOffsetY(0)
+      return
+    }
+    const rect = submenuRef.current?.getBoundingClientRect()
+    if (rect) setSubmenuOffsetY(getSubmenuOffsetY(rect))
+  }, [openGroup])
 
   useEffect(() => {
     const closeOnPointer = (event: MouseEvent) => {
@@ -168,7 +199,12 @@ export function MarkdownContextMenu({
               <Icon size={16} strokeWidth={1.8} /><span>{group.label}</span><ChevronRight className="markdown-context-chevron" size={15} />
             </button>
             {openGroup === group.label && (
-              <div className={`markdown-context-submenu${submenuLeft ? ' markdown-context-submenu--left' : ''}`} role="menu">
+              <div
+                ref={submenuRef}
+                className={`markdown-context-submenu${submenuLeft ? ' markdown-context-submenu--left' : ''}`}
+                role="menu"
+                style={{ top: -5 + submenuOffsetY }}
+              >
                 {group.items.map(renderItem)}
               </div>
             )}

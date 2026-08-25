@@ -21,7 +21,7 @@ export interface BackupPolicy {
 }
 
 export const DEFAULT_BACKUP_POLICY: BackupPolicy = {
-  maxSnapshotsPerSource: 20,
+  maxSnapshotsPerSource: 1,
   maxStorageMb: 500,
 }
 

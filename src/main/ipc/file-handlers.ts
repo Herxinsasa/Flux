@@ -318,9 +318,9 @@ export function registerFileHandlers(): void {
         return { success: false, error: 'Invalid workspace root', code: 'INVALID_DATA' }
       }
       try {
-        const task = startWorkspaceWatch(root, (watchId, watchedRoot) => {
+        const task = startWorkspaceWatch(root, (watchId, watchedRoot, changedPaths) => {
           if (!event.sender.isDestroyed()) {
-            event.sender.send(FILE_WORKSPACE_CHANGE_EVENT, { watchId, root: watchedRoot })
+            event.sender.send(FILE_WORKSPACE_CHANGE_EVENT, { watchId, root: watchedRoot, changedPaths })
           }
         })
         event.sender.once('destroyed', () => stopWorkspaceWatch(task.taskId))

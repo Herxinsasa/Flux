@@ -23,6 +23,30 @@ let _workspaceRefreshTimer: number | null = null
 let _logIndexUnsub: (() => void) | null = null
 let _logIndexRequestVersion = 0
 let _navigationRequestVersion = 0
+const _externalReloadChecks = new Set<string>()
+
+async function promptExternalFileReload(filePath: string): Promise<void> {
+  const key = normalizeDocumentPath(filePath)
+  if (_externalReloadChecks.has(key)) return
+  const session = useEditorStore.getState().documentSessions[key]
+  if (!session?.snapshot || session.sampled) return
+
+  _externalReloadChecks.add(key)
+  try {
+    const response = await window.electronAPI.file.readText(filePath)
+    if (!response.success || !response.data) return
+    const latest = useEditorStore.getState().documentSessions[key]
+    if (!latest?.snapshot || latest.snapshot.version.contentHash === response.data.version.contentHash) return
+    const message = latest.dirty
+      ? '文件已在外部修改。重新加载将放弃 Flux 中未保存的更改，是否继续？'
+      : '文件已在外部修改，是否重新加载？'
+    if (window.confirm(message)) useEditorStore.getState().setDocumentSnapshot(filePath, response.data)
+  } catch (error) {
+    console.warn('External file reload check failed:', error)
+  } finally {
+    _externalReloadChecks.delete(key)
+  }
+}
 
 function mergeWorkspaceEntries(
   current: WorkspaceFileEntry[],
@@ -48,6 +72,10 @@ async function beginWorkspaceWatch(root: string, get: () => FileState): Promise<
   const applyChange = (event: WorkspaceChangeEvent) => {
     if (event.root !== root || get().workspaceRoot !== root) return
     if (_workspaceWatchId && event.watchId !== _workspaceWatchId) return
+    const currentFile = get().currentFile
+    if (currentFile && (event.changedPaths ?? []).some((filePath) => normalizeDocumentPath(filePath) === normalizeDocumentPath(currentFile))) {
+      void promptExternalFileReload(currentFile)
+    }
     if (_workspaceRefreshTimer != null) globalThis.clearTimeout(_workspaceRefreshTimer)
     _workspaceRefreshTimer = globalThis.setTimeout(() => {
       _workspaceRefreshTimer = null

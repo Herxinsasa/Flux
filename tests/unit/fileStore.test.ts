@@ -16,6 +16,8 @@ const mockOnWorkspaceChange = vi.fn()
 const mockRecordRecent = vi.fn()
 const mockListSessions = vi.fn()
 const mockReadWorkspaceSession = vi.fn()
+const mockDiscardSource = vi.fn()
+const mockConfirm = vi.fn()
 
 vi.stubGlobal('window', {
   electronAPI: {
@@ -38,7 +40,9 @@ vi.stubGlobal('window', {
       readSession: mockReadWorkspaceSession,
       session: { list: mockListSessions },
     },
+    backup: { discardSource: mockDiscardSource },
   },
+  confirm: mockConfirm,
 })
 
 import type { FileEntry } from '../../src/renderer/src/stores/fileStore'
@@ -82,8 +86,11 @@ describe('useFileStore', () => {
       cursorColumn: 0,
       selectedText: null,
       previewContent: null,
+      activeDocumentPath: null,
+      documentSessions: {},
     })
     vi.clearAllMocks()
+    window.confirm = mockConfirm
     mockReadText.mockResolvedValue({
       success: true,
       data: {
@@ -102,6 +109,8 @@ describe('useFileStore', () => {
     mockRecordRecent.mockResolvedValue({ success: true })
     mockListSessions.mockResolvedValue({ success: true, data: [] })
     mockReadWorkspaceSession.mockResolvedValue({ success: true, data: null })
+    mockDiscardSource.mockResolvedValue({ success: true, data: { discarded: 0 } })
+    mockConfirm.mockReturnValue(true)
   })
 
   describe('addFile', () => {
@@ -259,8 +268,8 @@ describe('useFileStore', () => {
 
       useFileStore.getState().setCurrentFile('/b.md')
       await vi.waitFor(() => expect(useFileStore.getState().currentFile).toBe('/b.md'))
-      expect(useEditorStore.getState().documentSessions['/a.md'].draft).toBe('# A')
-      expect(useEditorStore.getState().documentSessions['/a.md'].dirty).toBe(false)
+      expect(useEditorStore.getState().documentSessions['/a.md']).toBeUndefined()
+      expect(mockDiscardSource).toHaveBeenCalledWith('/a.md')
       unregister()
     })
   })
@@ -329,7 +338,7 @@ describe('useFileStore', () => {
 
     it('rescans after the workspace watcher reports a filesystem change', async () => {
       vi.useFakeTimers()
-      let changeListener: ((event: { watchId: string; root: string }) => void) | null = null
+      let changeListener: ((event: { watchId: string; root: string; changedPaths: string[] }) => void) | null = null
       mockOnWorkspaceChange.mockImplementation((listener) => {
         changeListener = listener
         return vi.fn()
@@ -341,11 +350,43 @@ describe('useFileStore', () => {
       await useFileStore.getState().openFolder()
       expect(mockScanWorkspace).toHaveBeenCalledTimes(1)
 
-      changeListener?.({ watchId: 'watch-1', root: 'C:\\workspace' })
+      changeListener?.({ watchId: 'watch-1', root: 'C:\\workspace', changedPaths: [] })
       await vi.advanceTimersByTimeAsync(250)
 
       expect(mockScanWorkspace).toHaveBeenCalledTimes(2)
       vi.useRealTimers()
+    })
+
+    it('prompts and reloads the current file after an external content change', async () => {
+      let changeListener: ((event: { watchId: string; root: string; changedPaths: string[] }) => void) | null = null
+      mockOnWorkspaceChange.mockImplementation((listener) => {
+        changeListener = listener
+        return vi.fn()
+      })
+      mockOnWorkspaceScan.mockReturnValue(vi.fn())
+      mockOpenFolder.mockResolvedValue({ success: true, data: { root: 'C:\\workspace', files: [] } })
+      mockScanWorkspace.mockResolvedValue({ success: true, data: { taskId: 'scan-1' } })
+      await useFileStore.getState().openFolder()
+
+      const filePath = 'C:\\workspace\\notes.md'
+      useFileStore.setState({ currentFile: filePath, files: [makeFile({ path: filePath, name: 'notes.md' })] })
+      useEditorStore.getState().setDocumentSnapshot(filePath, {
+        filePath, content: '# Old', encoding: 'utf8', lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 5, contentHash: 'old' }, sampled: false,
+      })
+      mockReadText.mockResolvedValueOnce({
+        success: true,
+        data: {
+          filePath, content: '# External', encoding: 'utf8', lineEnding: 'lf',
+          version: { mtimeMs: 2, size: 10, contentHash: 'external' }, sampled: false,
+        },
+      })
+
+      changeListener?.({ watchId: 'watch-1', root: 'C:\\workspace', changedPaths: [filePath] })
+
+      await vi.waitFor(() => expect(useEditorStore.getState().content).toBe('# External'))
+      expect(mockConfirm).toHaveBeenCalledWith('文件已在外部修改，是否重新加载？')
+      expect(useEditorStore.getState().isDirty).toBe(false)
     })
   })
 

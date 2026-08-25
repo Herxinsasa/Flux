@@ -49,7 +49,6 @@ class MermaidCodeBlockView implements NodeView {
   private lastRenderedSource = ''
   private lastRenderedTheme: 'dark' | 'default' | null = null
   private requestedTheme: 'dark' | 'default' | null = null
-  private contentScale = 1
   private readonly onPreviewClick = () => this.showSource()
   private readonly onSourceBlur = () => this.hideSource()
   private readonly onDocMouseDown = (event: MouseEvent) => {
@@ -115,11 +114,10 @@ class MermaidCodeBlockView implements NodeView {
     return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'
   }
 
-  refreshDisplay(theme: 'dark' | 'default', contentScale: number): void {
+  refreshDisplay(theme: 'dark' | 'default', _contentScale: number): void {
     if (!isMermaidLanguage(this.node.attrs.language)) return
     const previousTheme = this.requestedTheme
     this.requestedTheme = theme
-    this.contentScale = Number.isFinite(contentScale) && contentScale > 0 ? contentScale : 1
     this.applyPreviewScale()
     if (previousTheme !== theme && !this.showingSource) void this.renderDiagram()
   }
@@ -130,10 +128,10 @@ class MermaidCodeBlockView implements NodeView {
     const viewBox = svgElement?.getAttribute('viewBox')?.trim().split(/\s+/).map(Number)
     if (!svgElement || viewBox?.length !== 4 || !viewBox.every(Number.isFinite) || viewBox[2] <= 0) return
 
-    // The editor surface already uses CSS zoom. Cancel it for the preview container,
-    // then apply the requested scale to the SVG dimensions so diagrams track text zoom exactly.
-    this.previewEl.style.zoom = String(1 / this.contentScale)
-    svgElement.style.width = `${Math.ceil(viewBox[2] * this.contentScale)}px`
+    // Keep one stable vector base size. The editor root owns content zoom, so Mermaid
+    // inherits the same scale as text instead of cancelling and reconstructing it here.
+    this.previewEl.style.removeProperty('zoom')
+    svgElement.style.width = `${Math.ceil(viewBox[2])}px`
     svgElement.style.height = 'auto'
   }
 

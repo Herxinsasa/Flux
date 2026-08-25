@@ -1,11 +1,18 @@
 import { useEffect, useState } from 'react'
 import type { BackupRecoveryCandidate, BackupSnapshotContent } from '../../../../shared/attachment-backup'
+import { normalizeDocumentPath } from '../../stores/editorStore'
+import { subscribeDocumentBackupDiscard } from '../../utils/documentBackup'
 import { MdPreview } from '../editor/MdPreview'
 
 export function RecoveryBar({ sourcePath }: { sourcePath: string | null }) {
   const [candidates, setCandidates] = useState<BackupRecoveryCandidate[]>([])
   const [preview, setPreview] = useState<BackupSnapshotContent | null>(null)
   useEffect(() => { setPreview(null); if (!sourcePath) { setCandidates([]); return }; void window.electronAPI.backup.recoveries(sourcePath).then((result) => setCandidates(result.success ? result.data ?? [] : [])) }, [sourcePath])
+  useEffect(() => subscribeDocumentBackupDiscard((discardedPath) => {
+    if (!sourcePath || normalizeDocumentPath(discardedPath) !== normalizeDocumentPath(sourcePath)) return
+    setCandidates([])
+    setPreview(null)
+  }), [sourcePath])
   if (candidates.length === 0) return null
   const latest = candidates[0]
   const discard = async (id: string) => { const result = await window.electronAPI.backup.discard(id); if (result.success) { setCandidates((items) => items.filter((item) => item.id !== id)); if (preview?.id === id) setPreview(null) } }

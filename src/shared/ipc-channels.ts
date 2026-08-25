@@ -29,6 +29,7 @@ export const IPC_CHANNELS = {
   BACKUP_READ: 'backup:read',
   BACKUP_RECOVERIES: 'backup:recoveries',
   BACKUP_DISCARD: 'backup:discard',
+  BACKUP_DISCARD_SOURCE: 'backup:discard-source',
   BACKUP_SAVE_AS: 'backup:save-as',
   REVIEW_LOAD: 'review:load',
   REVIEW_SAVE: 'review:save',

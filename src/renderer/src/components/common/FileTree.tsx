@@ -62,7 +62,7 @@ function FileTreeItem({ file, badge }: { file: FileEntry; badge?: string }) {
 
   return (
     <div
-      className={`w-full text-left rounded-[var(--radius-sm)] text-app-sm cursor-pointer transition-colors duration-[var(--transition-fast)] flex items-center gap-2 font-[var(--font-mono)] ${
+      className={`w-full text-left rounded-[var(--radius-sm)] text-app-sm cursor-pointer transition-colors duration-[var(--transition-fast)] flex items-center gap-2 font-[var(--font-ui)] ${
         isActive
           ? 'bg-[var(--selection)] text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--hover)]'
@@ -76,7 +76,7 @@ function FileTreeItem({ file, badge }: { file: FileEntry; badge?: string }) {
         className="flex items-center gap-2 flex-1 min-w-0 text-left bg-transparent border-0 p-0 m-0 cursor-pointer text-inherit font-inherit"
       >
         <span
-          className="shrink-0 text-app-sm font-[var(--font-mono)] font-normal leading-none"
+          className="shrink-0 text-app-sm font-[var(--font-ui)] font-normal leading-none"
           aria-hidden
         >
           {emoji}
@@ -225,7 +225,7 @@ export function FileTree() {
           )}
           {workspaceRoot && (
             <p
-              className="shrink-0 text-app-xs text-[var(--text-hint)] font-[var(--font-mono)] px-1 mb-1 truncate"
+              className="shrink-0 text-app-xs text-[var(--text-hint)] font-[var(--font-ui)] px-1 mb-1 truncate"
               title={workspaceRoot}
             >
               {workspaceRoot}

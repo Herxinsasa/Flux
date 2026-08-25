@@ -28,6 +28,7 @@ declare global {
         read: (snapshotId: string) => Promise<import('../../../shared/types').IpcResponse<import('../../../shared/attachment-backup').BackupSnapshotContent | null>>
         recoveries: (sourcePath?: string) => Promise<import('../../../shared/types').IpcResponse<import('../../../shared/attachment-backup').BackupRecoveryCandidate[]>>
         discard: (snapshotId: string) => Promise<import('../../../shared/types').IpcResponse<{ discarded: boolean }>>
+        discardSource: (sourcePath: string) => Promise<import('../../../shared/types').IpcResponse<{ discarded: number }>>
         saveAs: (request: import('../../../shared/attachment-backup').SaveBackupAsRequest) => Promise<import('../../../shared/types').IpcResponse<{ cancelled?: boolean; targetPath?: string }>>
       }
       file: {

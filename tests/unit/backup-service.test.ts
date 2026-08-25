@@ -23,6 +23,14 @@ describe('BackupService', () => {
     await service.create({ sourcePath: source, content: 'two', sourceVersion: version }); await service.create({ sourcePath: source, content: 'three', sourceVersion: version })
     expect(await service.list(source)).toHaveLength(2)
   })
+  it('keeps only one rolling snapshot by default and can discard a source atomically', async () => {
+    const { root, service } = await setup(); const source = path.join(root, 'rolling.md'); await fs.writeFile(source, 'disk')
+    await service.create({ sourcePath: source, content: 'one', sourceVersion: version })
+    await service.create({ sourcePath: source, content: 'two', sourceVersion: version })
+    expect(await service.list(source)).toHaveLength(1)
+    await expect(service.discardSource(source)).resolves.toBe(1)
+    expect(await service.list(source)).toHaveLength(0)
+  })
   it('returns only snapshots newer than their source and refuses overwrite recovery', async () => {
     const fixedNow = 1_700_000_000_000
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-backup-')); roots.push(root)
@@ -34,14 +42,14 @@ describe('BackupService', () => {
     const target = path.join(root, 'restored.md'); await service.saveAs({ snapshotId: snapshot.id, targetPath: target }); await expect(fs.readFile(target, 'utf8')).resolves.toBe('draft')
   })
 
-  it('keeps a dirty snapshot recoverable when the source changed at the same filesystem timestamp', async () => {
+  it('does not mix an externally changed source into ordinary crash recovery', async () => {
     const fixedNow = 1_700_000_100_000
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-backup-')); roots.push(root)
     const service = new BackupService({ rootDir: root, now: () => fixedNow })
     const source = path.join(root, 'a.md'); await fs.writeFile(source, 'baseline'); await fs.utimes(source, fixedNow / 1000, fixedNow / 1000)
     const snapshot = await service.create({ sourcePath: source, content: 'unsaved draft', sourceVersion: await fileVersion(source) })
     await fs.writeFile(source, 'external edit'); await fs.utimes(source, fixedNow / 1000, fixedNow / 1000)
-    expect((await service.findRecoveryCandidates(source)).map((item) => item.id)).toContain(snapshot.id)
+    expect((await service.findRecoveryCandidates(source)).map((item) => item.id)).not.toContain(snapshot.id)
   })
 
   it('does not offer recovery when disk content already equals the snapshot', async () => {
@@ -68,7 +76,7 @@ describe('BackupService', () => {
     await service.create({ sourcePath: source, content: 'draft one', sourceVersion })
     await service.create({ sourcePath: source, content: 'draft two', sourceVersion })
 
-    expect(await service.findRecoveryCandidates(source)).toHaveLength(2)
+    expect(await service.findRecoveryCandidates(source)).toHaveLength(1)
     expect(sourceReader).toHaveBeenCalledTimes(1)
   })
 })

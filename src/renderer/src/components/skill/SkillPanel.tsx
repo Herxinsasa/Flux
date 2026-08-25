@@ -438,7 +438,7 @@ export function SkillPanel({ onBack }: SkillPanelProps) {
                 <div
                   style={{
                     fontSize: 12,
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: 'var(--font-ui)',
                     color: 'var(--text-tertiary)',
                     padding: '8px 10px',
                     borderRadius: 'var(--radius-sm)',

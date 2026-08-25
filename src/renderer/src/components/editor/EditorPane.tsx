@@ -553,8 +553,8 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
           >
             <span
               style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 12,
+                fontFamily: 'var(--font-ui)',
+                fontSize: 14,
                 color: 'var(--accent)',
                 fontWeight: 400,
               }}

@@ -37,6 +37,15 @@ export function getMarkdownShortcutCommand(
   return null
 }
 
+export function shouldUseNativeWysiwygMarkShortcut(
+  command: MarkdownCommandId,
+  surface: 'wysiwyg' | 'source',
+  target: EventTarget | null,
+): boolean {
+  if (surface !== 'wysiwyg' || (command !== 'bold' && command !== 'italic')) return false
+  return target instanceof Element && target.closest('.flux-milkdown-root .ProseMirror') != null
+}
+
 const MARKDOWN_ZOOM_DEFAULT = DEFAULT_READING_PREFERENCES.bodyFontSize
 
 function codeFontSizeForBodyFontSize(bodyFontSize: number): number {
@@ -113,6 +122,11 @@ export function useShortcuts() {
         const markdownEditor = document.querySelector('.markdown-editor-container')
         const target = e.target instanceof Node ? e.target : document.activeElement
         if (markdownEditor && target && markdownEditor.contains(target)) {
+          if (shouldUseNativeWysiwygMarkShortcut(
+            markdownCommand,
+            useEditorStore.getState().markdownEditSurface,
+            e.target,
+          )) return
           e.preventDefault()
           e.stopPropagation()
           dispatchMarkdownCommand(markdownCommand)
