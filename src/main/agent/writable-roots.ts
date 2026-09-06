@@ -45,6 +45,36 @@ export function collectWritableRoots(input?: WritableRootsInput): string[] {
   return [...roots]
 }
 
+/**
+ * Agent 读取范围比写入范围更窄：不暴露应用用户数据和已安装 Skill 目录。
+ * 允许当前工作区、打开文件及用户显式附带路径，避免工具读取任意本地文件。
+ */
+export function collectReadableRoots(input?: WritableRootsInput): string[] {
+  const roots = new Set<string>()
+  const add = (p?: string | null) => {
+    if (!p || typeof p !== 'string' || !p.trim()) return
+    try {
+      roots.add(path.resolve(p.trim()))
+    } catch {
+      roots.add(p.trim())
+    }
+  }
+
+  add(input?.workspaceRoot ?? undefined)
+  for (const x of input?.writableRootsExtra ?? []) {
+    add(x)
+  }
+  for (const f of input?.openFiles ?? []) {
+    try {
+      add(path.dirname(path.resolve(f.path)))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return [...roots]
+}
+
 export function isPathUnderWritableRoots(resolvedFilePath: string, roots: string[]): boolean {
   if (roots.length === 0) return false
   const norm = path.normalize(resolvedFilePath)

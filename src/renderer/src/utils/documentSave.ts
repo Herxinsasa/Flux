@@ -1,6 +1,7 @@
 import { normalizeDocumentPath, useEditorStore } from '../stores/editorStore'
 import { flushPendingEditorDraft } from './editorDraftBuffer'
 import { discardDocumentBackup } from './documentBackup'
+import { captureEditableFocus } from './editorFocus'
 
 export function getSaveErrorMessage(code?: string, error?: string): string {
   if (code === 'VERSION_CONFLICT') return '文件已在外部修改，未覆盖原文件'
@@ -52,10 +53,12 @@ export async function saveDocument(filePath?: string): Promise<boolean> {
   }
 
   if (res?.code === 'VERSION_CONFLICT') {
+    const restoreEditorFocus = captureEditableFocus()
     const reload = window.confirm(
       '文件已在外部修改，Flux 未覆盖磁盘文件。\n\n是否放弃 Flux 中的未保存内容并重新载入磁盘版本？',
     )
     if (reload) await reloadDocumentFromDisk(session.filePath)
+    restoreEditorFocus()
     return false
   }
 

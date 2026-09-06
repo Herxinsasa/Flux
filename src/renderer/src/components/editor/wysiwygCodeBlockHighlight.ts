@@ -4,6 +4,7 @@ import type { Node as ProseMirrorNode } from '@milkdown/prose/model'
 import { Plugin, PluginKey, type Transaction } from '@milkdown/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/prose/view'
 import { isMermaidLanguage } from './mermaidCodeBlockView'
+import { isPlainTextCodeLanguage, normalizeCodeBlockLanguage } from '../../utils/codeBlockLanguage'
 
 export interface CodeHighlightSpan {
   from: number
@@ -11,14 +12,10 @@ export interface CodeHighlightSpan {
   classes: string
 }
 
-function normalizedLanguage(language: unknown): string {
-  return typeof language === 'string' ? language.trim().split(/\s+/)[0]?.toLowerCase() ?? '' : ''
-}
-
 /** Convert highlight.js HTML into text offsets so ProseMirror remains the editable DOM owner. */
 export function highlightCodeText(code: string, language: unknown): CodeHighlightSpan[] {
-  const normalized = normalizedLanguage(language)
-  if (!code || !normalized || !hljs.getLanguage(normalized)) return []
+  const normalized = normalizeCodeBlockLanguage(language)
+  if (!code || !normalized || isPlainTextCodeLanguage(normalized) || !hljs.getLanguage(normalized)) return []
 
   let value = ''
   try {
@@ -55,7 +52,7 @@ function buildCodeDecorations(doc: ProseMirrorNode): DecorationSet {
   const decorations: Decoration[] = []
   doc.descendants((node, position) => {
     if (node.type.name !== 'code_block' || isMermaidLanguage(node.attrs.language)) return
-    const language = normalizedLanguage(node.attrs.language)
+    const language = normalizeCodeBlockLanguage(node.attrs.language)
     for (const span of highlightCodeText(node.textContent, language)) {
       decorations.push(Decoration.inline(position + 1 + span.from, position + 1 + span.to, {
         class: span.classes,

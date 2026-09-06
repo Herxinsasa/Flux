@@ -54,4 +54,45 @@ describe('MarkdownContextMenu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '分割线' }))
     expect(onCommand).toHaveBeenCalledWith('insert-divider')
   })
+
+  it('exposes the TOC command in the insert submenu', () => {
+    render(
+      <MarkdownContextMenu
+        x={10}
+        y={10}
+        hasSelection={false}
+        readOnly={false}
+        aiEnabled={true}
+        onClose={vi.fn()}
+        onCommand={vi.fn()}
+      />,
+    )
+
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '插入' }).parentElement!)
+    expect(screen.getByRole('menuitem', { name: '目录' })).not.toBeNull()
+  })
+
+  it('keeps a submenu available while the pointer crosses from its parent item', () => {
+    const onCommand = vi.fn()
+    render(
+      <MarkdownContextMenu
+        x={10}
+        y={10}
+        hasSelection={false}
+        readOnly={false}
+        aiEnabled={true}
+        onClose={vi.fn()}
+        onCommand={onCommand}
+      />,
+    )
+
+    const group = screen.getByRole('button', { name: '插入' }).parentElement!
+    fireEvent.mouseEnter(group)
+    const imageItem = screen.getByRole('menuitem', { name: '图片' })
+    fireEvent.mouseLeave(group)
+    fireEvent.mouseEnter(imageItem.parentElement!)
+    fireEvent.click(imageItem)
+
+    expect(onCommand).toHaveBeenCalledWith('insert-image')
+  })
 })

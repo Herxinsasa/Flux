@@ -197,7 +197,9 @@ function executeTool(
   name: string,
   input: unknown,
   writableRoots: string[],
+  readableRoots: string[],
   onProgress?: (evt: ToolProgressEvent) => void,
+  signal?: AbortSignal,
 ): Promise<{ content: string; isError?: boolean }> {
   const inp = input as ToolCallInput
   const startedAt = Date.now()
@@ -223,19 +225,23 @@ function executeTool(
         emitProgress('start', '开始读取文件')
         const fp = inp.filePath
         if (!fp) return { content: 'Error: filePath is required', isError: true }
-        if (!fs.existsSync(fp)) return { content: `Error: file not found: ${fp}`, isError: true }
+        const resolved = path.resolve(fp)
+        if (!isPathUnderWritableRoots(resolved, readableRoots)) {
+          return { content: 'Error: reading outside the active workspace, open tabs, or attached paths is not allowed.', isError: true }
+        }
+        if (!fs.existsSync(resolved)) return { content: `Error: file not found: ${resolved}`, isError: true }
 
         const lineLimit = inp.limit != null
           ? Math.min(Math.max(1, Math.floor(inp.limit)), READ_FILE_MAX_LINES)
           : READ_FILE_DEFAULT_LIMIT
         const offset = Math.max(0, Math.floor(inp.offset ?? 0))
 
-        const range = readFileLineRange(fp, offset, lineLimit)
-        const meta = `[read ${path.basename(fp)} L${range.startLine}-${range.endLine}, total ${range.totalLines} lines${range.truncated ? ', truncated' : ''}]`
+        const range = readFileLineRange(resolved, offset, lineLimit)
+        const meta = `[read ${path.basename(resolved)} L${range.startLine}-${range.endLine}, total ${range.totalLines} lines${range.truncated ? ', truncated' : ''}]`
         const snippet = range.content ? `${range.content}\n\n${meta}` : meta
 
         emitProgress('done', '读取文件完成', {
-          filePath: fp,
+          filePath: resolved,
           totalLines: range.totalLines,
           returnedLines: range.endLine - range.startLine + 1,
           truncated: range.truncated,
@@ -283,6 +289,10 @@ function executeTool(
         if (!pattern || !dirStr) {
           return { content: 'Error: pattern and directory are required', isError: true }
         }
+        const resolvedSearchRoot = path.resolve(dirStr)
+        if (!isPathUnderWritableRoots(resolvedSearchRoot, readableRoots)) {
+          return { content: 'Error: searching outside the active workspace, open tabs, or attached paths is not allowed.', isError: true }
+        }
 
         // Build a regex from the pattern (no 'g' flag to avoid stateful lastIndex issues)
         let regex: RegExp
@@ -301,6 +311,8 @@ function executeTool(
         const BINARY_EXTS = /\.(exe|dll|pdb|obj|bin|o|a|so|dylib|png|jpe?g|gif|ico|bmp|webp|woff2?|ttf|eot|zip|gz|tar|7z|bz2|xz|pdf|mp[34]|avi|mov|mkv|class|jar)$/i
 
         const MAX_RESULT_LINES = SEARCH_CONTENT_MAX_LINES
+        const MAX_SCANNED_FILES = 5000
+        const MAX_FILE_BYTES = 4 * 1024 * 1024
         const results: string[] = []
         let scannedFiles = 0
 
@@ -310,13 +322,17 @@ function executeTool(
           }
         }
 
-        function searchFile(filePath: string): void {
+        async function searchFile(filePath: string): Promise<void> {
           if (results.length >= MAX_RESULT_LINES) return
+          if (scannedFiles >= MAX_SCANNED_FILES) return
+          if (signal?.aborted) return
           scannedFiles++
           reportScanProgress()
           let content: string
           try {
-            content = fs.readFileSync(filePath, 'utf-8')
+            const stat = await fs.promises.stat(filePath)
+            if (stat.size > MAX_FILE_BYTES) return
+            content = await fs.promises.readFile(filePath, 'utf-8')
           } catch {
             return // skip unreadable files
           }
@@ -340,47 +356,47 @@ function executeTool(
           }
         }
 
-        function walkDir(dir: string): void {
-          if (results.length >= MAX_RESULT_LINES) return
-          let entries: fs.Dirent[]
-          try {
-            entries = fs.readdirSync(dir, { withFileTypes: true })
-          } catch {
-            return
-          }
+        async function walkDir(dir: string): Promise<void> {
+          const pendingDirs = [dir]
+          while (pendingDirs.length > 0 && results.length < MAX_RESULT_LINES && scannedFiles < MAX_SCANNED_FILES) {
+            if (signal?.aborted) return
+            const currentDir = pendingDirs.pop()!
+            let entries: fs.Dirent[]
+            try {
+              entries = await fs.promises.readdir(currentDir, { withFileTypes: true })
+            } catch {
+              continue
+            }
 
-          for (const entry of entries) {
-            if (results.length >= MAX_RESULT_LINES) return
-            const fullPath = path.join(dir, entry.name)
-
-            if (entry.isDirectory()) {
-              // Skip common large directories
-              if (entry.name === 'node_modules' || entry.name === '.git') continue
-              walkDir(fullPath)
-            } else if (entry.isFile()) {
-              if (BINARY_EXTS.test(entry.name)) continue
-              if (exts) {
-                const ext = path.extname(entry.name).replace(/^\./, '').toLowerCase()
-                if (!exts.includes(ext)) continue
+            for (const entry of entries) {
+              if (signal?.aborted || results.length >= MAX_RESULT_LINES || scannedFiles >= MAX_SCANNED_FILES) return
+              const fullPath = path.join(currentDir, entry.name)
+              if (entry.isDirectory()) {
+                if (entry.name !== 'node_modules' && entry.name !== '.git') pendingDirs.push(fullPath)
+              } else if (entry.isFile()) {
+                if (BINARY_EXTS.test(entry.name)) continue
+                if (exts) {
+                  const ext = path.extname(entry.name).replace(/^\./, '').toLowerCase()
+                  if (!exts.includes(ext)) continue
+                }
+                await searchFile(fullPath)
               }
-              searchFile(fullPath)
             }
           }
         }
 
         // Determine whether dirStr points to a single file or a directory
         try {
-          const stat = fs.statSync(dirStr)
+          const stat = await fs.promises.stat(resolvedSearchRoot)
           if (stat.isFile()) {
-            if (!BINARY_EXTS.test(path.basename(dirStr))) {
-              searchFile(dirStr)
+            if (!BINARY_EXTS.test(path.basename(resolvedSearchRoot))) {
+              await searchFile(resolvedSearchRoot)
             }
           } else {
-            walkDir(dirStr)
+            await walkDir(resolvedSearchRoot)
           }
         } catch {
-          // stat failed — try as a directory anyway
-          walkDir(dirStr)
+          return { content: `Error: search path not found or unreadable: ${resolvedSearchRoot}`, isError: true }
         }
 
         const output = results.slice(0, MAX_RESULT_LINES).join('\n')
@@ -395,6 +411,7 @@ function executeTool(
           scannedFiles,
           matchedLines: hitCount,
           reachedLimit: hitCount >= MAX_RESULT_LINES,
+          scanLimitReached: scannedFiles >= MAX_SCANNED_FILES,
         })
         return { content: (output || '(no matches)') + suffix }
       }
@@ -402,7 +419,11 @@ function executeTool(
       case 'get_file_info': {
         const fp = inp.filePath
         if (!fp) return { content: 'Error: filePath is required', isError: true }
-        const info = getFileInfo(fp)
+        const resolved = path.resolve(fp)
+        if (!isPathUnderWritableRoots(resolved, readableRoots)) {
+          return { content: 'Error: reading outside the active workspace, open tabs, or attached paths is not allowed.', isError: true }
+        }
+        const info = getFileInfo(resolved)
         return {
           content: JSON.stringify(
             {
@@ -526,6 +547,8 @@ export interface AgentRunParams {
   maxToolRoundtrips?: number
   /** write_file 允许的绝对路径前缀（工作区、已打开文件目录、userData 等） */
   writableRoots?: string[]
+  /** read_file / search_content / get_file_info 允许的绝对路径前缀 */
+  readableRoots?: string[]
   /** 工具执行进度回调（用于 UI 反馈） */
   onToolProgress?: (evt: ToolProgressEvent) => void
 }
@@ -579,6 +602,7 @@ export async function* runAgent(
 
   const chatMessages: ChatMessage[] = [...params.messages]
   const writableRoots = params.writableRoots ?? []
+  const readableRoots = params.readableRoots ?? []
 
   try {
     for (let round = 0; round <= maxRounds; round++) {
@@ -645,7 +669,14 @@ export async function* runAgent(
         roundReasoning = ''
 
         for (const tc of toolCalls) {
-          const result = await executeTool(tc.name, tc.input, writableRoots, params.onToolProgress)
+          const result = await executeTool(
+            tc.name,
+            tc.input,
+            writableRoots,
+            readableRoots,
+            params.onToolProgress,
+            signal,
+          )
           const clamped = clampToolResult(tc.name, result.content, result.isError)
 
           yield {

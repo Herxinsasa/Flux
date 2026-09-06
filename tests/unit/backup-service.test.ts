@@ -23,12 +23,16 @@ describe('BackupService', () => {
     await service.create({ sourcePath: source, content: 'two', sourceVersion: version }); await service.create({ sourcePath: source, content: 'three', sourceVersion: version })
     expect(await service.list(source)).toHaveLength(2)
   })
-  it('keeps only one rolling snapshot by default and can discard a source atomically', async () => {
+  it('keeps five rolling snapshots by default and can discard a source atomically', async () => {
     const { root, service } = await setup(); const source = path.join(root, 'rolling.md'); await fs.writeFile(source, 'disk')
-    await service.create({ sourcePath: source, content: 'one', sourceVersion: version })
-    await service.create({ sourcePath: source, content: 'two', sourceVersion: version })
-    expect(await service.list(source)).toHaveLength(1)
-    await expect(service.discardSource(source)).resolves.toBe(1)
+    const first = await service.create({ sourcePath: source, content: 'one', sourceVersion: version })
+    for (const content of ['two', 'three', 'four', 'five', 'six']) {
+      await service.create({ sourcePath: source, content, sourceVersion: version })
+    }
+    const snapshots = await service.list(source)
+    expect(snapshots).toHaveLength(5)
+    await expect(service.read(first.id)).resolves.toBeNull()
+    await expect(service.discardSource(source)).resolves.toBe(5)
     expect(await service.list(source)).toHaveLength(0)
   })
   it('returns only snapshots newer than their source and refuses overwrite recovery', async () => {
@@ -76,7 +80,7 @@ describe('BackupService', () => {
     await service.create({ sourcePath: source, content: 'draft one', sourceVersion })
     await service.create({ sourcePath: source, content: 'draft two', sourceVersion })
 
-    expect(await service.findRecoveryCandidates(source)).toHaveLength(1)
+    expect(await service.findRecoveryCandidates(source)).toHaveLength(2)
     expect(sourceReader).toHaveBeenCalledTimes(1)
   })
 })

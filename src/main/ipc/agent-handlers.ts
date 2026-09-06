@@ -5,7 +5,7 @@ import { AgentProcessManager } from '../agent/agent-sandbox'
 import { buildSkillSystemPrompt } from '../skill/matcher'
 import { SkillManager } from '../skill/skill-manager'
 import type { ChatMessage } from '../agent/provider-router'
-import { collectWritableRoots } from '../agent/writable-roots'
+import { collectReadableRoots, collectWritableRoots } from '../agent/writable-roots'
 import { assembleAgentContext } from '../agent/context-assembler'
 import { MAX_TOOL_IPC_CHARS } from '../../shared/context-budget'
 import log from '../logger'
@@ -101,6 +101,11 @@ export function registerAgentHandlers(): void {
       log.info('Agent send:', { message: message.slice(0, 100), hasContext: !!context })
 
       const writableRoots = collectWritableRoots({
+        workspaceRoot: context?.workspaceRoot,
+        writableRootsExtra: context?.writableRootsExtra,
+        openFiles: context?.openFiles,
+      })
+      const readableRoots = collectReadableRoots({
         workspaceRoot: context?.workspaceRoot,
         writableRootsExtra: context?.writableRootsExtra,
         openFiles: context?.openFiles,
@@ -203,6 +208,7 @@ export function registerAgentHandlers(): void {
               system: systemPrompt,
               providerId: context?.providerId,
               writableRoots,
+              readableRoots,
               onToolProgress: (progress) => {
                 pushStreamEvent({
                   type: 'progress',

@@ -8,8 +8,72 @@
 
 .flux-milkdown-root {
   min-width: 0;
-  min-height: 0;
-  flex: 1 1 auto;
+  min-height: 100%;
+  flex: 0 0 auto;
+}
+
+.flux-image-node {
+  display: inline-flex;
+  max-width: calc(100% * var(--content-zoom, 1));
+  min-width: 0;
+  vertical-align: middle;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.flux-image-node img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.flux-image-node[data-state='loading'] img {
+  opacity: 0.55;
+}
+
+.flux-image-placeholder {
+  display: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border-visible);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+  cursor: pointer;
+}
+
+.flux-image-placeholder:hover,
+.flux-image-placeholder:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--selection);
+  outline: none;
+}
+
+.flux-image-placeholder-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.flux-image-node[data-state='missing'] img {
+  display: none;
+}
+
+.flux-image-node[data-state='missing'] .flux-image-placeholder {
+  display: inline-flex;
+}
+
+.flux-image-node.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .flux-milkdown-editor .milkdown-table-block {
@@ -66,10 +130,10 @@
   border: 1px solid var(--border-visible);
   border-radius: 5px;
   background: var(--bg-panel);
-  box-shadow: 0 5px 16px rgba(0, 0, 0, .2);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.2);
 }
 
-.flux-table-toolbar>button,
+.flux-table-toolbar > button,
 .flux-table-size-popover button {
   display: inline-grid;
   width: 28px;
@@ -82,9 +146,12 @@
   cursor: pointer;
 }
 
-.flux-table-toolbar>button:hover,
-.flux-table-toolbar>button[aria-expanded='true'],
-.flux-table-size-popover button:hover:not(:disabled) { color: var(--text-primary); background: var(--hover); }
+.flux-table-toolbar > button:hover,
+.flux-table-toolbar > button[aria-expanded='true'],
+.flux-table-size-popover button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--hover);
+}
 
 .flux-table-size-popover {
   position: absolute;
@@ -97,12 +164,26 @@
   border: 1px solid var(--border-visible);
   border-radius: 5px;
   background: var(--bg-panel);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, .24);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
 }
 
-.flux-table-size-popover>div { display: grid; grid-template-columns: 18px 1fr 28px 30px 28px; align-items: center; gap: 4px; color: var(--text-secondary); font: 12px var(--font-ui); }
-.flux-table-size-popover output { text-align: center; color: var(--text-primary); font: 12px var(--font-ui); }
-.flux-table-size-popover button:disabled { opacity: .35; cursor: default; }
+.flux-table-size-popover > div {
+  display: grid;
+  grid-template-columns: 18px 1fr 28px 30px 28px;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  font: 12px var(--font-ui);
+}
+.flux-table-size-popover output {
+  text-align: center;
+  color: var(--text-primary);
+  font: 12px var(--font-ui);
+}
+.flux-table-size-popover button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 
 .flux-milkdown-editor .milkdown-table-block .cell-handle {
   width: 22px;
@@ -110,7 +191,7 @@
   border: 1px solid var(--border-visible);
   border-radius: 4px;
   background: var(--bg-card);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   cursor: grab;
 }
 
@@ -175,7 +256,7 @@
   border: 1px solid var(--border-visible);
   border-radius: 4px;
   background: var(--bg-card);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .24);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
 }
 
 .flux-milkdown-editor .milkdown-table-block .button-group[data-show='true'] {

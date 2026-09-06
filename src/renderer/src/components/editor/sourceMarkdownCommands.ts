@@ -19,6 +19,7 @@ const INSERT_TEXT: Partial<Record<MarkdownCommandId, string>> = {
   'insert-link': '[链接文本](https://)',
   'insert-image': '![图片描述](./image.png)',
   'insert-table': '| 列 1 | 列 2 |\n| --- | --- |\n| 内容 | 内容 |',
+  'insert-toc': '[TOC]\n\n',
   'insert-code-block': '```text\n\n```',
   'insert-divider': '\n---\n',
 }
@@ -31,12 +32,15 @@ function lineRange(content: string, from: number, to: number): { from: number; t
 
 function replaceLinePrefixes(text: string, prefix: string, ordered = false): string {
   let index = 0
-  return text.split('\n').map((line) => {
-    if (!line.trim()) return line
-    const body = line.replace(/^\s*(?:>\s+|[-+*]\s+(?:\[[ xX]\]\s+)?|\d+\.\s+)?/, '')
-    index += 1
-    return `${ordered ? `${index}. ` : prefix}${body}`
-  }).join('\n')
+  return text
+    .split('\n')
+    .map((line) => {
+      if (!line.trim()) return line
+      const body = line.replace(/^\s*(?:>\s+|[-+*]\s+(?:\[[ xX]\]\s+)?|\d+\.\s+)?/, '')
+      index += 1
+      return `${ordered ? `${index}. ` : prefix}${body}`
+    })
+    .join('\n')
 }
 
 export function createSourceMarkdownEdit(
@@ -53,16 +57,33 @@ export function createSourceMarkdownEdit(
   if (wrapper) {
     if (!selected) return null
     const insert = `${wrapper[0]}${selected}${wrapper[1]}`
-    return { from, to, insert, selection: { anchor: from + wrapper[0].length, head: from + wrapper[0].length + selected.length } }
+    return {
+      from,
+      to,
+      insert,
+      selection: {
+        anchor: from + wrapper[0].length,
+        head: from + wrapper[0].length + selected.length,
+      },
+    }
   }
 
-  if (command === 'blockquote' || command === 'ordered-list' || command === 'unordered-list' || command === 'task-list') {
+  if (
+    command === 'blockquote' ||
+    command === 'ordered-list' ||
+    command === 'unordered-list' ||
+    command === 'task-list'
+  ) {
     if (!selected) return null
     const range = lineRange(content, from, to)
     const block = content.slice(range.from, range.to)
-    const insert = command === 'ordered-list'
-      ? replaceLinePrefixes(block, '', true)
-      : replaceLinePrefixes(block, command === 'blockquote' ? '> ' : command === 'task-list' ? '- [ ] ' : '- ')
+    const insert =
+      command === 'ordered-list'
+        ? replaceLinePrefixes(block, '', true)
+        : replaceLinePrefixes(
+            block,
+            command === 'blockquote' ? '> ' : command === 'task-list' ? '- [ ] ' : '- ',
+          )
     return { from: range.from, to: range.to, insert }
   }
 
@@ -70,10 +91,14 @@ export function createSourceMarkdownEdit(
     const level = Number(command.slice(-1))
     if (level < 1 || level > 5) return null
     const range = lineRange(content, from, to)
-    const insert = content.slice(range.from, range.to).split('\n').map((line) => {
-      if (!line.trim()) return line
-      return `${'#'.repeat(level)} ${line.replace(/^\s{0,3}#{1,6}\s+/, '')}`
-    }).join('\n')
+    const insert = content
+      .slice(range.from, range.to)
+      .split('\n')
+      .map((line) => {
+        if (!line.trim()) return line
+        return `${'#'.repeat(level)} ${line.replace(/^\s{0,3}#{1,6}\s+/, '')}`
+      })
+      .join('\n')
     return { from: range.from, to: range.to, insert }
   }
 

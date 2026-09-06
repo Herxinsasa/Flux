@@ -59,7 +59,7 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Flux
   deleteAppDataOnUninstall: false
-  artifactName: "${productName}-setup-${arch}.${ext}"
+  artifactName: "${productName}-${arch}.${ext}"
 
 portable:
   artifactName: "${productName}-portable-${arch}.${ext}"

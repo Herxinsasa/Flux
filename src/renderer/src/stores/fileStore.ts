@@ -11,6 +11,7 @@ import type {
 } from '../../../shared/types'
 import { EDITOR_LARGE_FILE_BYTES, EDITOR_SAMPLE_LINES } from '../../../shared/context-budget'
 import { confirmUnsavedDocument, listDirtyDocumentPaths } from '../utils/unsavedChangesGuard'
+import { captureEditableFocus } from '../utils/editorFocus'
 
 /** Track in-flight loads to prevent concurrent loadContent calls for the same file. */
 const _loadingPaths = new Set<string>()
@@ -20,10 +21,53 @@ let _workspaceScanUnsub: (() => void) | null = null
 let _workspaceWatchUnsub: (() => void) | null = null
 let _workspaceWatchId: string | null = null
 let _workspaceRefreshTimer: number | null = null
+let _workspaceScanRequestVersion = 0
 let _logIndexUnsub: (() => void) | null = null
 let _logIndexRequestVersion = 0
 let _navigationRequestVersion = 0
 const _externalReloadChecks = new Set<string>()
+const MAX_INACTIVE_DOCUMENT_CACHE = 8
+const MAX_INACTIVE_DOCUMENT_CACHE_BYTES = 64 * 1024 * 1024
+
+function estimateDocumentSessionBytes(draft: string, snapshotContent?: string): number {
+  const draftBytes = draft.length * 2
+  const snapshotBytes = snapshotContent && snapshotContent !== draft ? snapshotContent.length * 2 : 0
+  return draftBytes + snapshotBytes
+}
+
+function pruneInactiveDocumentCache(activeFilePath: string): void {
+  const activeKey = normalizeDocumentPath(activeFilePath)
+  const editor = useEditorStore.getState()
+  const candidates = Object.entries(editor.documentSessions)
+    .filter(([key, session]) => (
+      key !== activeKey
+      && !session.dirty
+      && (session.snapshot !== null || session.draft.length > 0)
+    ))
+    .map(([key, session]) => ({
+      key,
+      filePath: session.filePath,
+      lastActivatedAt: session.lastActivatedAt,
+      bytes: estimateDocumentSessionBytes(session.draft, session.snapshot?.content),
+    }))
+    .sort((a, b) => a.lastActivatedAt - b.lastActivatedAt)
+
+  let cachedBytes = candidates.reduce((total, session) => total + session.bytes, 0)
+  let cachedCount = candidates.length
+  for (const session of candidates) {
+    if (cachedCount <= MAX_INACTIVE_DOCUMENT_CACHE && cachedBytes <= MAX_INACTIVE_DOCUMENT_CACHE_BYTES) break
+    useEditorStore.getState().removeDocument(session.filePath)
+    cachedCount--
+    cachedBytes -= session.bytes
+  }
+}
+
+function discardPendingDocumentLoad(filePath: string): void {
+  const key = normalizeDocumentPath(filePath)
+  const session = useEditorStore.getState().documentSessions[key]
+  if (!session || session.dirty || session.snapshot !== null || session.draft.length > 0) return
+  useEditorStore.getState().removeDocument(filePath)
+}
 
 async function promptExternalFileReload(filePath: string): Promise<void> {
   const key = normalizeDocumentPath(filePath)
@@ -40,7 +84,9 @@ async function promptExternalFileReload(filePath: string): Promise<void> {
     const message = latest.dirty
       ? '文件已在外部修改。重新加载将放弃 Flux 中未保存的更改，是否继续？'
       : '文件已在外部修改，是否重新加载？'
+    const restoreEditorFocus = captureEditableFocus()
     if (window.confirm(message)) useEditorStore.getState().setDocumentSnapshot(filePath, response.data)
+    restoreEditorFocus()
   } catch (error) {
     console.warn('External file reload check failed:', error)
   } finally {
@@ -181,7 +227,7 @@ interface FileState {
   cycleMru: (direction: 1 | -1) => void
   setLoading: (loading: boolean) => void
   openFile: (filePath?: string) => Promise<void>
-  /** 双击文档启动：先确保文件所在目录为工作区，再打开该文档 */
+  /** 双击文档启动：保留现有工作区，将文档作为普通或外部工作集文件打开 */
   openFileFromLaunch: (filePath: string) => Promise<void>
   createFile: () => Promise<void>
   openFolder: (root?: string) => Promise<void>
@@ -204,16 +250,23 @@ export const useFileStore = create<FileState>((set, get) => ({
     _workspaceScanUnsub?.()
 
     let taskId: string | null = null
-    let scanVersion = 0
+    const requestVersion = ++_workspaceScanRequestVersion
+    let scannedFiles: WorkspaceFileEntry[] = []
     const queued: WorkspaceScanEvent[] = []
     const applyEvent = (event: WorkspaceScanEvent) => {
-      if (event.taskId !== taskId || get().workspaceRoot !== root || get().workspaceScanVersion !== scanVersion) return
+      if (event.taskId !== taskId || get().workspaceRoot !== root || requestVersion !== _workspaceScanRequestVersion) return
       if (event.status === 'batch' && event.entries) {
-        set((state) => ({ workspaceFiles: mergeWorkspaceEntries(state.workspaceFiles, event.entries!) }))
+        scannedFiles = mergeWorkspaceEntries(scannedFiles, event.entries)
         return
       }
       if (event.status === 'complete') {
-        set({ workspaceScanTaskId: null, workspaceScanStatus: 'complete', workspaceScanError: null })
+        set((state) => ({
+          workspaceFiles: scannedFiles,
+          workspaceScanTaskId: null,
+          workspaceScanVersion: state.workspaceScanVersion + 1,
+          workspaceScanStatus: 'complete',
+          workspaceScanError: null,
+        }))
       } else if (event.status === 'cancelled') {
         set({ workspaceScanTaskId: null, workspaceScanStatus: 'cancelled' })
       } else if (event.status === 'error') {
@@ -228,22 +281,19 @@ export const useFileStore = create<FileState>((set, get) => ({
       else queued.push(event)
     })
     _workspaceScanUnsub = unsubscribe
-    set((state) => ({
-      workspaceFiles: [],
+    set({
       workspaceScanTaskId: null,
-      workspaceScanVersion: state.workspaceScanVersion + 1,
       workspaceScanStatus: 'scanning',
       workspaceScanError: null,
-    }))
-    scanVersion = get().workspaceScanVersion
+    })
     const response = await window.electronAPI.file.scanWorkspace(root)
-    if (!response.success || !response.data || get().workspaceRoot !== root || get().workspaceScanVersion !== scanVersion) {
+    if (!response.success || !response.data || get().workspaceRoot !== root || requestVersion !== _workspaceScanRequestVersion) {
       if (response.data) void window.electronAPI.file.cancelWorkspaceScan(response.data.taskId)
       if (_workspaceScanUnsub === unsubscribe) {
         _workspaceScanUnsub = null
         unsubscribe()
       }
-      if (get().workspaceRoot === root && get().workspaceScanVersion === scanVersion) {
+      if (get().workspaceRoot === root && requestVersion === _workspaceScanRequestVersion) {
         set({ workspaceScanStatus: 'error', workspaceScanError: response.error ?? 'Workspace scan failed' })
       }
       return
@@ -253,6 +303,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     queued.forEach(applyEvent)
   },
   cancelWorkspaceScan: () => {
+    _workspaceScanRequestVersion++
     const taskId = get().workspaceScanTaskId
     if (taskId) void window.electronAPI.file.cancelWorkspaceScan(taskId)
     _workspaceScanUnsub?.()
@@ -579,19 +630,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   /* ── IPC-driven actions ── */
 
   openFileFromLaunch: async (filePath: string) => {
-    // 双击文档启动：文件不在当前工作区（或无工作区）时先加载所在目录为工作区，再打开文档
-    const { workspaceRoot } = get()
-    const normalizedFile = normalizeDocumentPath(filePath)
-    const isInside = workspaceRoot
-      ? normalizedFile === normalizeDocumentPath(workspaceRoot) ||
-        normalizedFile.startsWith(normalizeDocumentPath(workspaceRoot).replace(/\/?$/, '/'))
-      : false
-    if (!workspaceRoot || !isInside) {
-      const normalized = filePath.replace(/[\\/]+$/, '')
-      const index = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
-      const directory = index > 0 ? normalized.slice(0, index) : normalized
-      if (directory) await get().openFolder(directory)
-    }
+    // 工作区只由“打开文件夹”显式切换；系统关联或第二次启动传入的文件进入当前工作集。
     await get().openFile(filePath)
   },
 
@@ -748,12 +787,15 @@ export const useFileStore = create<FileState>((set, get) => ({
       const isLogFile = filePath.toLowerCase().endsWith('.log')
 
       if (isLogFile && fileSize > EDITOR_LARGE_FILE_BYTES) {
-        if (get().currentFile === filePath) {
+        if (get().currentFile && normalizeDocumentPath(get().currentFile!) === normalizeDocumentPath(filePath)) {
           useEditorStore.getState().setSampledDocument(filePath, '', 'log')
           useEditorStore.getState().setMode('log')
           useEditorStore.getState().markClean()
           useEditorStore.getState().bumpEditorHydration()
           void get().startLogIndex(filePath)
+          pruneInactiveDocumentCache(filePath)
+        } else {
+          discardPendingDocumentLoad(filePath)
         }
         cleanup()
         return
@@ -761,9 +803,12 @@ export const useFileStore = create<FileState>((set, get) => ({
 
       if (fileSize > EDITOR_LARGE_FILE_BYTES) {
         const sample = await readFileLineSample(filePath, EDITOR_SAMPLE_LINES)
-        if (get().currentFile === filePath) {
+        if (get().currentFile && normalizeDocumentPath(get().currentFile!) === normalizeDocumentPath(filePath)) {
           const banner = formatLargeFileEditorBanner(fileSize, fileLines)
           useEditorStore.getState().setSampledDocument(filePath, banner + sample, inferMode(filePath))
+          pruneInactiveDocumentCache(filePath)
+        } else {
+          discardPendingDocumentLoad(filePath)
         }
         cleanup()
         return
@@ -771,12 +816,21 @@ export const useFileStore = create<FileState>((set, get) => ({
 
       // ── Full read path for files ≤2MB ──
       const result = await window.electronAPI.file.readText(filePath)
-      if (result?.success && result.data && get().currentFile === filePath) {
+      if (
+        result?.success
+        && result.data
+        && get().currentFile
+        && normalizeDocumentPath(get().currentFile!) === normalizeDocumentPath(filePath)
+      ) {
         useEditorStore.getState().setDocumentSnapshot(filePath, result.data as TextDocumentSnapshot)
+        pruneInactiveDocumentCache(filePath)
+      } else {
+        discardPendingDocumentLoad(filePath)
       }
       cleanup()
     } catch (err) {
       console.error('loadFileContent error:', err)
+      discardPendingDocumentLoad(filePath)
       cleanup()
     }
   },

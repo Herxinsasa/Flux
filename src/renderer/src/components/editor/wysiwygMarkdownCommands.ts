@@ -13,6 +13,7 @@ import {
   wrapInOrderedListCommand,
 } from '@milkdown/kit/preset/commonmark'
 import { insertTableCommand } from '@milkdown/kit/preset/gfm'
+import type { EditorView } from '@milkdown/kit/prose/view'
 import type { MarkdownCommandId } from './sourceMarkdownCommands'
 
 const SELECTION_COMMANDS = new Set<MarkdownCommandId>([
@@ -78,6 +79,13 @@ function insertLink(editor: Editor): boolean {
   return true
 }
 
+function insertToc(view: EditorView): boolean {
+  const tocType = view.state.schema.nodes.toc
+  if (!tocType) return false
+  view.dispatch(view.state.tr.replaceSelectionWith(tocType.create()).scrollIntoView())
+  return true
+}
+
 export function runWysiwygMarkdownCommand(editor: Editor, command: MarkdownCommandId): boolean {
   // milkdown 的 Ctx.get 对未注册 slice 会抛异常（create 前/destroy 后），须 try/catch 兜底
   let commands, view
@@ -132,6 +140,9 @@ export function runWysiwygMarkdownCommand(editor: Editor, command: MarkdownComma
       break
     case 'insert-table':
       handled = commands.call(insertTableCommand.key, { row: 3, col: 3 })
+      break
+    case 'insert-toc':
+      handled = insertToc(view)
       break
     case 'insert-code-block':
       handled = commands.call(createCodeBlockCommand.key)

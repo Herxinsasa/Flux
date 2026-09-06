@@ -14,7 +14,11 @@ let mermaidCounter = 0
 let mermaidInitialized: string | null = null
 const activeMermaidViews = new Set<MermaidCodeBlockView>()
 
-async function renderMermaidSvg(renderId: string, source: string, theme: 'dark' | 'default'): Promise<string> {
+async function renderMermaidSvg(
+  renderId: string,
+  source: string,
+  theme: 'dark' | 'default',
+): Promise<string> {
   const { default: mermaid } = await import('mermaid')
   // 模块级初始化一次，避免多代码块并发 render 时全局配置竞争
   if (mermaidInitialized !== theme) {
@@ -23,6 +27,19 @@ async function renderMermaidSvg(renderId: string, source: string, theme: 'dark' 
   }
   const { svg } = await mermaid.render(renderId, source)
   return svg
+}
+
+/** Keep Mermaid at its vector base size; the WYSIWYG root owns content zoom. */
+export function applyMermaidPreviewScale(previewEl: HTMLElement): void {
+  const svgElement = previewEl.querySelector('svg')
+  const viewBox = svgElement?.getAttribute('viewBox')?.trim().split(/\s+/).map(Number)
+  if (!svgElement || viewBox?.length !== 4 || !viewBox.every(Number.isFinite) || viewBox[2] <= 0)
+    return
+
+  svgElement.style.width = `${Math.ceil(viewBox[2])}px`
+  svgElement.style.height = 'auto'
+  svgElement.style.removeProperty('zoom')
+  previewEl.style.removeProperty('zoom')
 }
 
 /**
@@ -68,7 +85,8 @@ class MermaidCodeBlockView implements NodeView {
       // 普通代码块：沿用 milkdown 默认结构 pre > code(0)
       this.dom = document.createElement('pre')
       this.dom.className = 'flux-code-block'
-      this.dom.dataset.language = (node.attrs.language as string | undefined)?.trim().split(/\s+/)[0] ?? ''
+      this.dom.dataset.language =
+        (node.attrs.language as string | undefined)?.trim().split(/\s+/)[0] ?? ''
       this.sourceEl = document.createElement('code')
       this.dom.appendChild(this.sourceEl)
       this.contentDOM = this.sourceEl
@@ -114,7 +132,7 @@ class MermaidCodeBlockView implements NodeView {
     return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'default'
   }
 
-  refreshDisplay(theme: 'dark' | 'default', _contentScale: number): void {
+  refreshDisplay(theme: 'dark' | 'default'): void {
     if (!isMermaidLanguage(this.node.attrs.language)) return
     const previousTheme = this.requestedTheme
     this.requestedTheme = theme
@@ -124,15 +142,7 @@ class MermaidCodeBlockView implements NodeView {
 
   private applyPreviewScale(): void {
     if (!isMermaidLanguage(this.node.attrs.language)) return
-    const svgElement = this.previewEl.querySelector('svg')
-    const viewBox = svgElement?.getAttribute('viewBox')?.trim().split(/\s+/).map(Number)
-    if (!svgElement || viewBox?.length !== 4 || !viewBox.every(Number.isFinite) || viewBox[2] <= 0) return
-
-    // Keep one stable vector base size. The editor root owns content zoom, so Mermaid
-    // inherits the same scale as text instead of cancelling and reconstructing it here.
-    this.previewEl.style.removeProperty('zoom')
-    svgElement.style.width = `${Math.ceil(viewBox[2])}px`
-    svgElement.style.height = 'auto'
+    applyMermaidPreviewScale(this.previewEl)
   }
 
   private async renderDiagram(): Promise<void> {
@@ -203,7 +213,8 @@ class MermaidCodeBlockView implements NodeView {
     }
     this.node = node
     if (!isMermaidLanguage(node.attrs.language)) {
-      this.dom.dataset.language = (node.attrs.language as string | undefined)?.trim().split(/\s+/)[0] ?? ''
+      this.dom.dataset.language =
+        (node.attrs.language as string | undefined)?.trim().split(/\s+/)[0] ?? ''
     }
     if (!this.showingSource) void this.renderDiagram()
     return true
@@ -225,7 +236,11 @@ class MermaidCodeBlockView implements NodeView {
     // contentDOM 内的变更交还 ProseMirror 回读（否则空代码块键入/粘贴静默丢失）；
     // 其余（如 SVG 注入预览区）保持忽略，避免脏重绘
     if (mutation.type === 'selection') return true
-    if (this.contentDOM && (this.contentDOM === mutation.target || this.contentDOM.contains(mutation.target))) return false
+    if (
+      this.contentDOM &&
+      (this.contentDOM === mutation.target || this.contentDOM.contains(mutation.target))
+    )
+      return false
     return true
   }
 }
@@ -235,6 +250,6 @@ export const mermaidCodeBlockView = $view(codeBlockSchema.node, () => (node, vie
   return new MermaidCodeBlockView(node, view, getPos)
 })
 
-export function refreshMermaidCodeBlockViews(theme: 'dark' | 'default', contentScale = 1): void {
-  activeMermaidViews.forEach((view) => view.refreshDisplay(theme, contentScale))
+export function refreshMermaidCodeBlockViews(theme: 'dark' | 'default'): void {
+  activeMermaidViews.forEach((view) => view.refreshDisplay(theme))
 }

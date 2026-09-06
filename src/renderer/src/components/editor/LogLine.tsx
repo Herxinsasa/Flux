@@ -14,11 +14,11 @@ export const LogLine = memo(function LogLine({ item }: LogLineProps) {
   return (
     <div
       className="log-line"
-      data-level={item.level ?? undefined}
       style={{
         display: 'flex',
-        fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--font-size-app)',
+        alignItems: 'baseline',
+        fontFamily: 'var(--font-editor)',
+        fontSize: 'calc(var(--font-code-size, 13px) + 3px)',
         lineHeight: 1.5,
       }}
     >
@@ -30,6 +30,7 @@ export const LogLine = memo(function LogLine({ item }: LogLineProps) {
           paddingRight: 8,
           paddingLeft: 12,
           color: 'var(--text-tertiary)',
+          fontVariantNumeric: 'tabular-nums',
           userSelect: 'none',
           flexShrink: 0,
         }}
@@ -39,7 +40,7 @@ export const LogLine = memo(function LogLine({ item }: LogLineProps) {
       <span
         className="log-line-text"
         style={{
-          color: item.color || 'var(--text-primary)',
+          color: 'var(--text-primary)',
           whiteSpace: 'pre',
         }}
       >

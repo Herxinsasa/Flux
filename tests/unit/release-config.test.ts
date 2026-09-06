@@ -27,7 +27,7 @@ describe('baseline2.0 Windows release contract', () => {
     expect(builder).not.toContain('target: zip')
     expect(builder).not.toMatch(/^mac:/m)
     expect(builder).not.toMatch(/^linux:/m)
-    expect(builder).toContain('${productName}-setup-${arch}.${ext}')
+    expect(builder).toContain('${productName}-${arch}.${ext}')
     expect(builder).toContain('${productName}-portable-${arch}.${ext}')
   })
 

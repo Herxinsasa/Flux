@@ -22,14 +22,22 @@ import { SearchPanel } from './SearchPanel'
 import { createReviewAnchor, type ReviewAnchor } from '../../../../shared/review'
 import { normalizeDocumentPath } from '../../stores/editorStore'
 import { useReviewStore } from '../../stores/reviewStore'
-import { reviewDecorationField, setReviewDecorations } from '../../editor/codemirror/reviewDecorations'
-import { IMAGE_MIME_TYPES } from '../../../../shared/attachment-backup'
+import {
+  reviewDecorationField,
+  setReviewDecorations,
+} from '../../editor/codemirror/reviewDecorations'
 import { MarkdownContextMenu } from './MarkdownContextMenu'
 import { createSourceMarkdownEdit, type MarkdownCommandId } from './sourceMarkdownCommands'
 import { registerEditorDraftBuffer } from '../../utils/editorDraftBuffer'
 import { WysiwygReviewComposer } from './WysiwygReviewComposer'
 import { getMarkdownZoomAction } from '../../hooks/useShortcuts'
 import { listenForMarkdownCommands } from './markdownCommandEvents'
+import {
+  isSupportedImageFile,
+  markdownImageSyntax,
+  saveMarkdownImages,
+} from '../../utils/imageAttachment'
+import { editorScrollRatio, editorScrollTopForRatio } from '../../utils/editorScrollPosition'
 
 /* ── Main editor pane ────────────────────────────────────────────── */
 
@@ -42,11 +50,8 @@ export interface EditorPaneProps {
 
 export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPaneProps) {
   const { extensions, handleChange: commitContent } = useEditor()
-  const editorExtensions = useMemo(
-    () => [...extensions, reviewDecorationField],
-    [extensions],
-  )
-  const controlledContent = useEditorStore((s) => s.mode === 'markdown' ? null : s.content)
+  const editorExtensions = useMemo(() => [...extensions, reviewDecorationField], [extensions])
+  const controlledContent = useEditorStore((s) => (s.mode === 'markdown' ? null : s.content))
   const isDirty = useEditorStore((s) => s.isDirty)
   const mode = useEditorStore((s) => s.mode)
   const cursorLine = useEditorStore((s) => s.cursorLine)
@@ -66,7 +71,9 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
   })
   const currentFile = useFileStore((s) => s.currentFile)
   const reviewPanelOpen = useReviewStore((s) => s.panelOpen)
-  const reviewDocument = useReviewStore((s) => currentFile ? s.documents[normalizeDocumentPath(currentFile)] : undefined)
+  const reviewDocument = useReviewStore((s) =>
+    currentFile ? s.documents[normalizeDocumentPath(currentFile)] : undefined,
+  )
   const locateTick = useReviewStore((s) => s.locateTick)
   const menuUiTick = useEditorStore((s) => s.menuUiTick)
   const markdownCommandTick = useEditorStore((s) => s.markdownCommandTick)
@@ -85,6 +92,7 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
   const cursorLabelRef = useRef<HTMLSpanElement>(null)
   const lastSelectionRef = useRef<{ from: number; to: number } | null>(null)
   const scrollFrameRef = useRef<number | null>(null)
+  const restoringScrollRef = useRef(mode === 'markdown')
   const reanchorTimerRef = useRef<number | null>(null)
   const hydratingRef = useRef(false)
   const markdownValueRef = useRef(useEditorStore.getState().content)
@@ -108,9 +116,17 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
   const lastJumpedLineRef = useRef<number>(0)
 
   // JSON context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    hasSelection: boolean
+  } | null>(null)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
-  const [reviewComposer, setReviewComposer] = useState<{ x: number; y: number; anchor: ReviewAnchor } | null>(null)
+  const [reviewComposer, setReviewComposer] = useState<{
+    x: number
+    y: number
+    anchor: ReviewAnchor
+  } | null>(null)
   const { format, compact, error, clearError } = useJsonFormat()
 
   const closeContextMenu = useCallback(() => {
@@ -203,12 +219,7 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
     if (changeHighlightStartLine > 0 && changeHighlightEndLine > 0) {
       highlightLineRange(changeHighlightStartLine, changeHighlightEndLine)
     }
-  }, [
-    changeHighlightTick,
-    changeHighlightStartLine,
-    changeHighlightEndLine,
-    highlightLineRange,
-  ])
+  }, [changeHighlightTick, changeHighlightStartLine, changeHighlightEndLine, highlightLineRange])
 
   /* ── Quote selection action (shared by context menu trigger) ── */
 
@@ -232,7 +243,8 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
     if (anchor) setReviewComposer({ x: contextMenu.x, y: contextMenu.y, anchor })
   }, [contextMenu, currentFile, editorView])
 
-  const runMarkdownCommand = useCallback((command: MarkdownCommandId) => {
+  const runMarkdownCommand = useCallback(
+    (command: MarkdownCommandId) => {
     if (!editorView) return
     if (command === 'quote-ai') {
       quoteSelectionToChat()
@@ -243,14 +255,21 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
       return
     }
     const selection = editorView.state.selection.main
-    const edit = createSourceMarkdownEdit(command, editorView.state.doc.toString(), selection.from, selection.to)
+      const edit = createSourceMarkdownEdit(
+        command,
+        editorView.state.doc.toString(),
+        selection.from,
+        selection.to,
+      )
     if (!edit) return
     editorView.dispatch({
       changes: { from: edit.from, to: edit.to, insert: edit.insert },
       selection: edit.selection,
     })
     editorView.focus()
-  }, [composeReview, editorView, quoteSelectionToChat])
+    },
+    [composeReview, editorView, quoteSelectionToChat],
+  )
 
   useEffect(() => {
     if (mode !== 'markdown' || isReadOnly) return
@@ -286,14 +305,18 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
   }, [])
 
   useEffect(() => {
-    const unregister = registerEditorDraftBuffer({ flush: flushPendingDraft, clear: clearPendingDraft })
+    const unregister = registerEditorDraftBuffer({
+      flush: flushPendingDraft,
+      clear: clearPendingDraft,
+    })
     return () => {
       flushPendingDraft()
       unregister()
     }
   }, [clearPendingDraft, flushPendingDraft])
 
-  const handleEditorChange = useCallback((value: string) => {
+  const handleEditorChange = useCallback(
+    (value: string) => {
     if (hydratingRef.current) return
     markdownValueRef.current = value
     if (mode !== 'markdown') {
@@ -307,7 +330,9 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
     }
     if (draftTimerRef.current != null) window.clearTimeout(draftTimerRef.current)
     draftTimerRef.current = window.setTimeout(flushPendingDraft, 160)
-  }, [commitContent, flushPendingDraft, mode])
+    },
+    [commitContent, flushPendingDraft, mode],
+  )
 
   // Right-click handler — show context menu based on mode and selection
   const handleEditorContextMenu = useCallback(
@@ -315,7 +340,10 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
       if (!editorView) return
       let selection = editorView.state.selection.main
       const position = editorView.posAtCoords({ x: e.clientX, y: e.clientY })
-      if (position != null && (selection.empty || position < selection.from || position > selection.to)) {
+      if (
+        position != null &&
+        (selection.empty || position < selection.from || position > selection.to)
+      ) {
         editorView.dispatch({ selection: { anchor: position } })
         selection = editorView.state.selection.main
       }
@@ -341,9 +369,13 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
       const zoomAction = getMarkdownZoomAction(e)
       if (mode !== 'markdown' && zoomAction) {
         e.preventDefault()
-        const next = zoomAction === 'reset'
+        const next =
+          zoomAction === 'reset'
           ? DEFAULT_FONT_SIZE
-          : Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, fontSize + (zoomAction === 'in' ? 1 : -1)))
+            : Math.min(
+                MAX_FONT_SIZE,
+                Math.max(MIN_FONT_SIZE, fontSize + (zoomAction === 'in' ? 1 : -1)),
+              )
         setReadingPreferences({ codeFontSize: next })
       }
       if (e.key === 'Escape' && showSearch) {
@@ -385,34 +417,48 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
     hydratingRef.current = false
   }, [clearPendingDraft, editorHydrationEpoch, editorView, mode])
 
-  const insertImageFiles = useCallback(async (files: File[]) => {
+  const insertImageFiles = useCallback(
+    async (files: File[], position?: number) => {
     if (mode !== 'markdown' || isReadOnly || !currentFile || !editorView) return false
-    const image = files.find((file) => (IMAGE_MIME_TYPES as readonly string[]).includes(file.type))
-    if (!image) return false
-    try {
-      const bytes = new Uint8Array(await image.arrayBuffer())
-      const result = await window.electronAPI.attachment.saveImage({ sourcePath: currentFile, bytes, mime: image.type, alt: image.name.replace(/\.[^.]+$/, '') })
-      if (!result.success || !result.data) { setAttachmentError(result.error ?? '图片保存失败'); return true }
+      setAttachmentError(null)
+      const result = await saveMarkdownImages(currentFile, files)
+      if (result.error) setAttachmentError(result.error)
+      if (result.images.length === 0) return true
+      if (useFileStore.getState().currentFile !== currentFile) return true
       const selection = editorView.state.selection.main
-      editorView.dispatch({ changes: { from: selection.from, to: selection.to, insert: `![${result.data.alt}](${result.data.relativePath})` } })
+      const from = position ?? selection.from
+      const to = position == null ? selection.to : from
+      const insert = result.images.map(markdownImageSyntax).join('\n')
+      editorView.dispatch({
+        changes: { from, to, insert },
+        selection: { anchor: from + insert.length },
+      })
       editorView.focus()
       return true
-    } catch { setAttachmentError('图片保存失败，未插入引用'); return true }
-  }, [currentFile, editorView, isReadOnly, mode])
+    },
+    [currentFile, editorView, isReadOnly, mode],
+  )
 
-  const handleImagePaste = useCallback((event: React.ClipboardEvent) => {
+  const handleImagePaste = useCallback(
+    (event: React.ClipboardEvent) => {
     const files = Array.from(event.clipboardData.files)
-    if (!files.some((file) => (IMAGE_MIME_TYPES as readonly string[]).includes(file.type))) return
+      if (!files.some(isSupportedImageFile)) return
     event.preventDefault()
     void insertImageFiles(files)
-  }, [insertImageFiles])
+    },
+    [insertImageFiles],
+  )
 
-  const handleImageDrop = useCallback((event: React.DragEvent) => {
+  const handleImageDrop = useCallback(
+    (event: React.DragEvent) => {
     const files = Array.from(event.dataTransfer.files)
-    if (!files.some((file) => (IMAGE_MIME_TYPES as readonly string[]).includes(file.type))) return
+      if (!files.some(isSupportedImageFile)) return
     event.preventDefault()
-    void insertImageFiles(files)
-  }, [insertImageFiles])
+      const position = editorView?.posAtCoords({ x: event.clientX, y: event.clientY }) ?? undefined
+      void insertImageFiles(files, position)
+    },
+    [editorView, insertImageFiles],
+  )
 
   useEffect(() => {
     onEditorViewChange?.(editorView)
@@ -451,14 +497,21 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
   // Sync selection highlight to editor store
   useSelectionHighlight(editorView)
 
-  useEffect(() => () => {
+  useEffect(
+    () => () => {
     if (reanchorTimerRef.current != null) window.clearTimeout(reanchorTimerRef.current)
     if (scrollFrameRef.current != null) window.cancelAnimationFrame(scrollFrameRef.current)
-  }, [])
+    },
+    [],
+  )
 
   useEffect(() => {
     if (!editorView) return
-    editorView.dispatch({ effects: setReviewDecorations.of(reviewPanelOpen ? reviewDocument?.sidecar.comments ?? [] : []) })
+    editorView.dispatch({
+      effects: setReviewDecorations.of(
+        reviewPanelOpen ? (reviewDocument?.sidecar.comments ?? []) : [],
+      ),
+    })
   }, [editorView, reviewDocument?.sidecar.comments, reviewPanelOpen])
 
   // 双击跳转（locateTick 驱动）：单击选中（activeCommentId）只作用于面板高亮，不触发跳转。
@@ -470,16 +523,26 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
     const activeCommentId = useReviewStore.getState().activeCommentId
     if (!activeCommentId) return
     const comment = reviewDocument?.sidecar.comments.find((item) => item.id === activeCommentId)
-    if (!comment || comment.anchorStatus === 'orphaned' || comment.anchor.end > editorView.state.doc.length) return
-    editorView.dispatch({ effects: EV.scrollIntoView(comment.anchor.start, { y: 'center' }), selection: { anchor: comment.anchor.start, head: comment.anchor.end } })
+    if (
+      !comment ||
+      comment.anchorStatus === 'orphaned' ||
+      comment.anchor.end > editorView.state.doc.length
+    )
+      return
+    editorView.dispatch({
+      effects: EV.scrollIntoView(comment.anchor.start, { y: 'center' }),
+      selection: { anchor: comment.anchor.start, head: comment.anchor.end },
+    })
     editorView.focus()
   }, [locateTick, editorView, reviewDocument?.sidecar.comments])
 
   // Track cursor position from CM6 updates
-  const handleUpdate = useCallback((update: ViewUpdate) => {
+  const handleUpdate = useCallback(
+    (update: ViewUpdate) => {
     const head = update.state.selection.main.head
     const line = update.state.doc.lineAt(head)
-    if (cursorLabelRef.current) cursorLabelRef.current.textContent = `第 ${line.number} 行，第 ${head - line.from + 1} 列`
+      if (cursorLabelRef.current)
+        cursorLabelRef.current.textContent = `第 ${line.number} 行，第 ${head - line.from + 1} 列`
     const selection = update.state.selection.main
     const nextSelection = selection.empty ? null : { from: selection.from, to: selection.to }
     const previous = lastSelectionRef.current
@@ -487,37 +550,80 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
       lastSelectionRef.current = nextSelection
       setDocumentSelection(nextSelection ?? undefined)
     }
-  }, [setDocumentSelection])
+    },
+    [setDocumentSelection],
+  )
 
   useEffect(() => {
     if (!editorView) return
+    const persistScrollPosition = () => {
+      if (mode === 'markdown' && restoringScrollRef.current) return
+      const scrollElement = editorView.scrollDOM
+      setDocumentScrollTop(
+        scrollElement.scrollTop,
+        mode === 'markdown' ? editorScrollRatio(scrollElement) : undefined,
+      )
+    }
     const onScroll = () => {
+      if (mode === 'markdown' && restoringScrollRef.current) return
       if (scrollFrameRef.current != null) return
       scrollFrameRef.current = window.requestAnimationFrame(() => {
         scrollFrameRef.current = null
-        setDocumentScrollTop(editorView.scrollDOM.scrollTop)
+        persistScrollPosition()
       })
     }
     editorView.scrollDOM.addEventListener('scroll', onScroll, { passive: true })
-    return () => editorView.scrollDOM.removeEventListener('scroll', onScroll)
-  }, [editorView, setDocumentScrollTop])
+    return () => {
+      editorView.scrollDOM.removeEventListener('scroll', onScroll)
+      if (scrollFrameRef.current != null) {
+        window.cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
+      if (editorView.scrollDOM.isConnected) persistScrollPosition()
+    }
+  }, [editorView, mode, setDocumentScrollTop])
 
   useEffect(() => {
     if (!editorView) return
     const state = useEditorStore.getState()
-    const session = state.activeDocumentPath ? state.documentSessions[state.activeDocumentPath] : undefined
+    const session = state.activeDocumentPath
+      ? state.documentSessions[state.activeDocumentPath]
+      : undefined
     if (!session) return
+    restoringScrollRef.current = mode === 'markdown'
     if (session.selection) {
       const max = editorView.state.doc.length
-      editorView.dispatch({ selection: { anchor: Math.min(session.selection.from, max), head: Math.min(session.selection.to, max) } })
+      editorView.dispatch({
+        selection: {
+          anchor: Math.min(session.selection.from, max),
+          head: Math.min(session.selection.to, max),
+        },
+      })
     }
-    editorView.scrollDOM.scrollTop = session.scrollTop
-  }, [editorView, editorHydrationEpoch])
+    let releaseFrame: number | null = null
+    editorView.requestMeasure({
+      read: (view) =>
+        mode === 'markdown' && session.scrollRatio != null
+          ? editorScrollTopForRatio(view.scrollDOM, session.scrollRatio)
+          : session.scrollTop,
+      write: (scrollTop, view) => {
+        view.scrollDOM.scrollTop = scrollTop
+        releaseFrame = window.requestAnimationFrame(() => {
+          restoringScrollRef.current = false
+          releaseFrame = null
+        })
+      },
+    })
+    return () => {
+      if (releaseFrame != null) window.cancelAnimationFrame(releaseFrame)
+    }
+  }, [editorView, editorHydrationEpoch, mode])
 
   return (
     <div
       ref={containerRef}
       className="editor-pane-container"
+      data-editor-mode={mode}
       style={{
         height: '100%',
         display: 'flex',
@@ -525,7 +631,7 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
         overflow: 'hidden',
         background: 'var(--bg-viewer)',
         position: 'relative',
-        fontSize: `${fontSize}px`,
+        fontSize: `${fontSize + 3}px`,
         fontFamily: 'var(--font-editor)',
       }}
     >
@@ -559,7 +665,8 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
                 fontWeight: 400,
               }}
             >
-              {currentFileName}{isDirty ? ' *' : ''}
+              {currentFileName}
+              {isDirty ? ' *' : ''}
             </span>
           </div>
         </div>
@@ -567,15 +674,35 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
 
       {/* CodeMirror editor with custom search panel */}
       <div
-        style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+          position: 'relative',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
         onContextMenu={handleEditorContextMenu}
         onPaste={handleImagePaste}
         onDrop={handleImageDrop}
-        onDragOver={(event) => { if (Array.from(event.dataTransfer.items).some((item) => (IMAGE_MIME_TYPES as readonly string[]).includes(item.type))) event.preventDefault() }}
+        onDragOver={(event) => {
+          if (
+            Array.from(event.dataTransfer.items).some((item) =>
+              (['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as string[]).includes(
+                item.type,
+              ),
+            )
+          )
+            event.preventDefault()
+        }}
       >
         {/* 自定义搜索面板 */}
         {showSearch && <SearchPanel view={editorView} onClose={() => setShowSearch(false)} />}
-        {attachmentError && <div className="editor-inline-notice" role="status">{attachmentError}</div>}
+        {attachmentError && (
+          <div className="editor-inline-notice" role="status">
+            {attachmentError}
+          </div>
+        )}
 
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <CodeMirror
@@ -633,8 +760,11 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
           </span>
           <span style={{ color: 'var(--text-hint)' }}>{EDITOR_MODE_LABEL[mode]}</span>
         </div>
-        <span style={{ color: 'var(--text-hint)', fontSize: '11px' }} title="Ctrl+Plus 放大，Ctrl+Minus 缩小，Ctrl+0 重置">
-          字体 {fontSize}px
+        <span
+          style={{ color: 'var(--text-hint)', fontSize: '11px' }}
+          title="Ctrl+Plus 放大，Ctrl+Minus 缩小，Ctrl+0 重置"
+        >
+          字体 {fontSize + 3}px
         </span>
       </div>
 
@@ -651,17 +781,26 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
         />
       )}
 
-      {reviewComposer && currentFile && <WysiwygReviewComposer
+      {reviewComposer && currentFile && (
+        <WysiwygReviewComposer
         x={reviewComposer.x}
         y={reviewComposer.y}
         onCancel={() => setReviewComposer(null)}
         onSave={async (body) => {
           flushPendingDraft()
-          const saved = await useReviewStore.getState().addComment(currentFile, useEditorStore.getState().content, reviewComposer.anchor, body)
+            const saved = await useReviewStore
+              .getState()
+              .addComment(
+                currentFile,
+                useEditorStore.getState().content,
+                reviewComposer.anchor,
+                body,
+              )
           if (saved) setReviewComposer(null)
           return saved
         }}
-      />}
+        />
+      )}
 
       {/* JSON context menu — includes "引用到对话" when selection exists */}
       {mode === 'json' && contextMenu && !contextMenu.hasSelection && (

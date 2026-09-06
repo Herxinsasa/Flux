@@ -15,6 +15,7 @@ import {
   Minus,
   Quote,
   Table2,
+  ListTree,
   TextQuote,
 } from 'lucide-react'
 import {
@@ -26,7 +27,9 @@ import {
 interface MenuGroup {
   label: string
   icon: ComponentType<{ size?: number; strokeWidth?: number }>
-  items: Array<MarkdownCommandItem & { icon: ComponentType<{ size?: number; strokeWidth?: number }> }>
+  items: Array<
+    MarkdownCommandItem & { icon: ComponentType<{ size?: number; strokeWidth?: number }> }
+  >
 }
 
 const GROUP_ICONS = { 样式: Bold, 段落: Heading1, 插入: Braces } as const
@@ -46,13 +49,17 @@ const ITEM_ICONS: Record<Exclude<MarkdownCommandId, 'quote-ai' | 'comment'>, Men
   'insert-link': Link,
   'insert-image': FileImage,
   'insert-table': Table2,
+  'insert-toc': ListTree,
   'insert-code-block': Code2,
   'insert-divider': Minus,
 }
 const GROUPS: MenuGroup[] = MARKDOWN_COMMAND_GROUPS.map((group) => ({
   ...group,
   icon: GROUP_ICONS[group.label],
-  items: group.items.map((item) => ({ ...item, icon: ITEM_ICONS[item.id as keyof typeof ITEM_ICONS] })),
+  items: group.items.map((item) => ({
+    ...item,
+    icon: ITEM_ICONS[item.id as keyof typeof ITEM_ICONS],
+  })),
 }))
 
 export interface MarkdownContextMenuProps {
@@ -101,10 +108,31 @@ export function MarkdownContextMenu({
 }: MarkdownContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const submenuRef = useRef<HTMLDivElement>(null)
+  const closeSubmenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [position, setPosition] = useState({ x, y })
   const [openGroup, setOpenGroup] = useState<string | null>(null)
   const [submenuOffsetY, setSubmenuOffsetY] = useState(0)
   const submenuLeft = position.x > window.innerWidth - 430
+
+  const cancelSubmenuClose = () => {
+    if (closeSubmenuTimerRef.current) {
+      clearTimeout(closeSubmenuTimerRef.current)
+      closeSubmenuTimerRef.current = null
+    }
+  }
+
+  const openSubmenu = (label: string) => {
+    cancelSubmenuClose()
+    setOpenGroup(label)
+  }
+
+  const scheduleSubmenuClose = (label: string) => {
+    cancelSubmenuClose()
+    closeSubmenuTimerRef.current = setTimeout(() => {
+      setOpenGroup((current) => (current === label ? null : current))
+      closeSubmenuTimerRef.current = null
+    }, 150)
+  }
 
   useLayoutEffect(() => {
     const rect = menuRef.current?.getBoundingClientRect()
@@ -135,6 +163,8 @@ export function MarkdownContextMenu({
       document.removeEventListener('keydown', closeOnKey)
     }
   }, [onClose])
+
+  useEffect(() => () => cancelSubmenuClose(), [])
 
   const run = (id: MarkdownCommandId, disabled: boolean) => {
     if (disabled) return
@@ -175,7 +205,8 @@ export function MarkdownContextMenu({
         title={!aiEnabled ? '请先配置 AI 服务' : undefined}
         onClick={() => run('quote-ai', !hasSelection || !aiEnabled)}
       >
-        <Quote size={16} strokeWidth={1.8} /><span>引用</span>
+        <Quote size={16} strokeWidth={1.8} />
+        <span>引用</span>
       </button>
       <button
         type="button"
@@ -183,7 +214,8 @@ export function MarkdownContextMenu({
         disabled={!hasSelection || !commentEnabled}
         onClick={() => run('comment', !hasSelection || !commentEnabled)}
       >
-        <MessageSquareText size={16} strokeWidth={1.8} /><span>批注</span>
+        <MessageSquareText size={16} strokeWidth={1.8} />
+        <span>批注</span>
       </button>
       <div className="markdown-context-separator" />
       {GROUPS.map((group) => {
@@ -192,11 +224,18 @@ export function MarkdownContextMenu({
           <div
             key={group.label}
             className="markdown-context-group"
-            onMouseEnter={() => setOpenGroup(group.label)}
-            onMouseLeave={() => setOpenGroup(null)}
+            onMouseEnter={() => openSubmenu(group.label)}
+            onMouseLeave={() => scheduleSubmenuClose(group.label)}
           >
-            <button type="button" className="markdown-context-item" aria-haspopup="menu" aria-expanded={openGroup === group.label}>
-              <Icon size={16} strokeWidth={1.8} /><span>{group.label}</span><ChevronRight className="markdown-context-chevron" size={15} />
+            <button
+              type="button"
+              className="markdown-context-item"
+              aria-haspopup="menu"
+              aria-expanded={openGroup === group.label}
+            >
+              <Icon size={16} strokeWidth={1.8} />
+              <span>{group.label}</span>
+              <ChevronRight className="markdown-context-chevron" size={15} />
             </button>
             {openGroup === group.label && (
               <div
@@ -204,6 +243,8 @@ export function MarkdownContextMenu({
                 className={`markdown-context-submenu${submenuLeft ? ' markdown-context-submenu--left' : ''}`}
                 role="menu"
                 style={{ top: -5 + submenuOffsetY }}
+                onMouseEnter={cancelSubmenuClose}
+                onMouseLeave={() => scheduleSubmenuClose(group.label)}
               >
                 {group.items.map(renderItem)}
               </div>

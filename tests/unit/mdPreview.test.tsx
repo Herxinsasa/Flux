@@ -26,7 +26,7 @@ describe('Markdown preview compatibility', () => {
     })
   })
 
-  it('renders list items that are pure quotes as standalone blockquotes', () => {
+  it('preserves blockquotes nested in ordered and unordered list items', () => {
     const html = renderMarkdownForPreview(`7. > 引用内容
 
 - > 无序引用
@@ -34,13 +34,15 @@ describe('Markdown preview compatibility', () => {
 - 普通列表项
 `)
     const document = new DOMParser().parseFromString(html, 'text/html')
-    // 列表项内容仅为引用时，转换为独立引用块；普通列表项保留
+    // CommonMark 语义：列表项内的引用保持嵌套关系，不能提升为独立引用块。
     expect(document.querySelectorAll('blockquote')).toHaveLength(2)
-    expect(document.querySelector('blockquote')?.textContent?.trim()).toBe('引用内容')
-    expect(document.querySelector('ul li')?.textContent).toBe('普通列表项')
+    expect(document.querySelector('ol > li > blockquote')?.textContent?.trim()).toBe('引用内容')
+    expect(document.querySelector('ul > li > blockquote')?.textContent?.trim()).toBe('无序引用')
+    const unorderedItems = document.querySelectorAll('ul > li')
+    expect(unorderedItems[unorderedItems.length - 1]?.textContent?.trim()).toBe('普通列表项')
   })
 
-  it('leaves fenced blocks, indented code, and nested lists untouched by the quote transform', () => {
+  it('preserves nested quotes and quote-like text in code blocks', () => {
     const html = renderMarkdownForPreview(`- 父列表
   - > 嵌套引用
 
@@ -51,13 +53,13 @@ describe('Markdown preview compatibility', () => {
     - > 缩进代码块行
 `)
     const document = new DOMParser().parseFromString(html, 'text/html')
-    // 嵌套列表内的引用保持嵌套关系（在 li 内）
+    // 嵌套列表内的引用保持嵌套关系（在 li 内）。
     const nested = document.querySelector('ul li ul li blockquote')
     expect(nested?.textContent?.trim()).toBe('嵌套引用')
-    // 围栏内字面量保持为代码内容
+    // 围栏内字面量保持为代码内容。
     const fenced = document.querySelector('pre code.language-md')
     expect(fenced?.textContent).toContain('7. > 围栏内字面量')
-    // 缩进代码块行保持为代码内容
+    // 缩进代码块行保持为代码内容。
     const indented = document.querySelectorAll('pre code')[1]
     expect(indented?.textContent).toContain('- > 缩进代码块行')
   })

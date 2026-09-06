@@ -16,6 +16,7 @@ export type MarkdownCommandId =
   | 'insert-link'
   | 'insert-image'
   | 'insert-table'
+  | 'insert-toc'
   | 'insert-code-block'
   | 'insert-divider'
 
@@ -56,6 +57,7 @@ export const MARKDOWN_COMMAND_GROUPS: MarkdownCommandGroup[] = [
       { id: 'insert-link', label: '链接' },
       { id: 'insert-image', label: '图片' },
       { id: 'insert-table', label: '表格' },
+      { id: 'insert-toc', label: '目录' },
       { id: 'insert-code-block', label: '代码块' },
       { id: 'insert-divider', label: '分割线' },
     ],

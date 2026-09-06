@@ -43,6 +43,14 @@ export function resolvePathFromBase(baseFilePath: string, href: string): string 
     return pathPart
   }
 
+  // Markdown 工具通常会把空格、中文和 # 等字符编码到 URL 中。
+  // 文件系统解析前还原编码，保存内容仍保留标准 URL 形式。
+  try {
+    pathPart = decodeURIComponent(pathPart)
+  } catch {
+    // 非法百分号编码按原始路径处理，避免整张图片链接直接失效。
+  }
+
   const preferBackslash = baseFilePath.includes('\\') || pathPart.includes('\\')
   const isWinAbs = /^[a-zA-Z]:[/\\]/.test(pathPart) || pathPart.startsWith('\\\\')
   if (isWinAbs || pathPart.startsWith('/')) {

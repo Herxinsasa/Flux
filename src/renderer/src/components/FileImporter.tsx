@@ -23,10 +23,13 @@ export function FileImporter({ children, onFilesDrop }: FileImporterProps) {
     }
 
     const handleDrop = (e: DragEvent) => {
+      const handledByChild =
+        e.defaultPrevented ||
+        Boolean((e as DragEvent & { __fluxDropHandled?: boolean }).__fluxDropHandled)
       e.preventDefault()
 
-      // Skip if a child component (DropZone, FileTree) already handled this drop
-      if ((e as any).__fluxDropHandled) return
+      // 编辑器插图、DropZone 或文件树已消费事件时，不再把图片当成普通文件打开。
+      if (handledByChild) return
 
       const droppedFiles = e.dataTransfer?.files
       if (!droppedFiles || droppedFiles.length === 0) return

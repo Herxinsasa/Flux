@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, memo } from 'react'
+import { useCallback, useEffect, useRef, useState, memo } from 'react'
+import type { EditorView } from '@codemirror/view'
 import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { useFileStore } from '../../stores/fileStore'
@@ -8,6 +9,7 @@ import { EditorPane } from './EditorPane'
 import { MdWysiwygEditor } from './MdWysiwygEditor'
 import { MdOutlinePanel } from './MdOutlinePanel'
 import type { MdOutlineItem } from '../../utils/markdownHeadingIds'
+import { editorScrollRatio } from '../../utils/editorScrollPosition'
 
 const StableEditorPane = memo(EditorPane)
 
@@ -48,6 +50,7 @@ export function MarkdownEditor() {
   const markdownEditSurface = useEditorStore((s) => s.markdownEditSurface)
   const isDirty = useEditorStore((s) => s.isDirty)
   const setMarkdownEditSurface = useEditorStore((s) => s.setMarkdownEditSurface)
+  const setDocumentScrollTop = useEditorStore((s) => s.setDocumentScrollTop)
   const setContent = useEditorStore((s) => s.setContent)
   const requestJumpToOutlineLine = useEditorStore((s) => s.requestJumpToOutlineLine)
   const theme = useSettingsStore((s) => s.theme)
@@ -60,6 +63,8 @@ export function MarkdownEditor() {
   })
 
   const [outlineOpen, setOutlineOpen] = useState(false)
+  const wysiwygScrollRef = useRef<HTMLDivElement>(null)
+  const sourceEditorViewRef = useRef<EditorView | null>(null)
   const [wysiwygOutlineTarget, setWysiwygOutlineTarget] = useState<{
     level: number
     text: string
@@ -76,6 +81,25 @@ export function MarkdownEditor() {
     event.stopPropagation()
     applyMarkdownZoomAction(event.deltaY < 0 ? 'in' : 'out')
   }, [])
+
+  const handleSourceEditorViewChange = useCallback((view: EditorView | null) => {
+    sourceEditorViewRef.current = view
+  }, [])
+
+  const switchMarkdownSurface = useCallback(
+    (surface: 'wysiwyg' | 'source') => {
+      if (surface === markdownEditSurface) return
+      const scrollElement =
+        markdownEditSurface === 'wysiwyg'
+          ? wysiwygScrollRef.current
+          : sourceEditorViewRef.current?.scrollDOM
+      if (scrollElement) {
+        setDocumentScrollTop(scrollElement.scrollTop, editorScrollRatio(scrollElement))
+      }
+      setMarkdownEditSurface(surface)
+    },
+    [markdownEditSurface, setDocumentScrollTop, setMarkdownEditSurface],
+  )
 
   useEffect(() => {
     setOutlineOpen(false)
@@ -150,14 +174,14 @@ export function MarkdownEditor() {
           <button
             type="button"
             className={tabBtn(markdownEditSurface === 'wysiwyg')}
-            onClick={() => setMarkdownEditSurface('wysiwyg')}
+            onClick={() => switchMarkdownSurface('wysiwyg')}
           >
             编辑
           </button>
           <button
             type="button"
             className={tabBtn(markdownEditSurface === 'source')}
-            onClick={() => setMarkdownEditSurface('source')}
+            onClick={() => switchMarkdownSurface('source')}
           >
             源码
           </button>
@@ -215,6 +239,7 @@ export function MarkdownEditor() {
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {markdownEditSurface === 'wysiwyg' ? (
             <div
+              ref={wysiwygScrollRef}
               className="flux-scroll"
               style={{
                 flex: 1,
@@ -233,7 +258,10 @@ export function MarkdownEditor() {
             </div>
           ) : (
             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <StableEditorPane hideFileBar />
+              <StableEditorPane
+                hideFileBar
+                onEditorViewChange={handleSourceEditorViewChange}
+              />
             </div>
           )}
         </div>

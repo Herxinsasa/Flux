@@ -317,14 +317,49 @@ describe('useFileStore', () => {
       await useFileStore.getState().openFolder()
 
       expect(useFileStore.getState().workspaceRoot).toBe('C:\\workspace')
-      expect(useFileStore.getState().workspaceFiles).toEqual([
-        { path: 'C:\\workspace\\notes.md', relativePath: 'notes.md' },
-      ])
+      expect(useFileStore.getState().workspaceFiles).toEqual([])
       expect(useFileStore.getState().workspaceScanStatus).toBe('scanning')
 
       scanListener?.({ taskId: 'scan-1', status: 'complete' })
+      expect(useFileStore.getState().workspaceFiles).toEqual([
+        { path: 'C:\\workspace\\notes.md', relativePath: 'notes.md' },
+      ])
       expect(useFileStore.getState().workspaceScanStatus).toBe('complete')
       expect(unsubscribe).toHaveBeenCalledOnce()
+    })
+
+    it('keeps the existing tree visible until a rescan completes, then replaces it', async () => {
+      let scanListener: ((event: {
+        taskId: string
+        status: 'batch' | 'complete'
+        entries?: Array<{ path: string; relativePath: string }>
+      }) => void) | null = null
+      mockOnWorkspaceScan.mockImplementation((listener) => {
+        scanListener = listener
+        return vi.fn()
+      })
+      mockScanWorkspace.mockResolvedValue({ success: true, data: { taskId: 'scan-2' } })
+      useFileStore.setState({
+        workspaceRoot: 'C:\\workspace',
+        workspaceFiles: [{ path: 'C:\\workspace\\old.md', relativePath: 'old.md' }],
+      })
+
+      await useFileStore.getState().startWorkspaceScan('C:\\workspace')
+      scanListener?.({
+        taskId: 'scan-2',
+        status: 'batch',
+        entries: [{ path: 'C:\\workspace\\new.md', relativePath: 'new.md' }],
+      })
+
+      expect(useFileStore.getState().workspaceFiles).toEqual([
+        { path: 'C:\\workspace\\old.md', relativePath: 'old.md' },
+      ])
+
+      scanListener?.({ taskId: 'scan-2', status: 'complete' })
+      expect(useFileStore.getState().workspaceFiles).toEqual([
+        { path: 'C:\\workspace\\new.md', relativePath: 'new.md' },
+      ])
+      expect(useFileStore.getState().workspaceScanVersion).toBe(1)
     })
 
     it('exposes an open-folder failure in workspace scan state', async () => {
@@ -423,6 +458,143 @@ describe('useFileStore', () => {
 
       useFileStore.getState().setLoading(false)
       expect(useFileStore.getState().isLoading).toBe(false)
+    })
+  })
+
+  describe('openFileFromLaunch', () => {
+    it('keeps the current workspace when opening an external file', async () => {
+      let finishRead: ((value: unknown) => void) | undefined
+      mockReadText.mockImplementation(() => new Promise((resolve) => { finishRead = resolve }))
+      useFileStore.setState({ workspaceRoot: 'C:\\workspace' })
+      mockGetInfo.mockResolvedValue({
+        success: true,
+        data: {
+          path: 'C:\\outside\\note.md',
+          name: 'note.md',
+          size: 12,
+          extension: '.md',
+          lines: 1,
+          encoding: 'utf8',
+        },
+      })
+
+      await useFileStore.getState().openFileFromLaunch('C:\\outside\\note.md')
+
+      await vi.waitFor(() => expect(mockReadText).toHaveBeenCalledWith('C:\\outside\\note.md'))
+      expect(useEditorStore.getState().content).toBe('')
+      finishRead?.({
+        success: true,
+        data: {
+          filePath: 'c:/outside/note.md',
+          content: '# External note',
+          encoding: 'utf8',
+          lineEnding: 'lf',
+          version: { mtimeMs: 1, size: 15, contentHash: 'external' },
+          sampled: false,
+        },
+      })
+      await vi.waitFor(() => expect(useEditorStore.getState().content).toBe('# External note'))
+
+      expect(mockOpenFolder).not.toHaveBeenCalled()
+      expect(useFileStore.getState().workspaceRoot).toBe('C:\\workspace')
+      expect(useFileStore.getState().files.some((file) => file.path === 'C:\\outside\\note.md')).toBe(true)
+    })
+
+    it('opens a standalone file without binding its parent as a workspace', async () => {
+      mockGetInfo.mockResolvedValue({
+        success: true,
+        data: {
+          path: 'C:\\notes\\single.md',
+          name: 'single.md',
+          size: 8,
+          extension: '.md',
+          lines: 1,
+          encoding: 'utf8',
+        },
+      })
+
+      await useFileStore.getState().openFileFromLaunch('C:\\notes\\single.md')
+
+      expect(mockOpenFolder).not.toHaveBeenCalled()
+      expect(useFileStore.getState().workspaceRoot).toBeNull()
+      expect(useFileStore.getState().currentFile).toBe('C:\\notes\\single.md')
+    })
+  })
+
+  describe('loadFileContent', () => {
+    it('drops a stale empty placeholder so the document can be loaded on the next activation', async () => {
+      let finishFirstRead: ((value: unknown) => void) | undefined
+      mockReadText
+        .mockImplementationOnce(() => new Promise((resolve) => { finishFirstRead = resolve }))
+        .mockResolvedValueOnce({
+          success: true,
+          data: {
+            filePath: '/b.md', content: '# B', encoding: 'utf8', lineEnding: 'lf',
+            version: { mtimeMs: 1, size: 3, contentHash: 'b' }, sampled: false,
+          },
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          data: {
+            filePath: '/a.md', content: '# A reloaded', encoding: 'utf8', lineEnding: 'lf',
+            version: { mtimeMs: 2, size: 12, contentHash: 'a2' }, sampled: false,
+          },
+        })
+      useFileStore.setState({
+        files: [makeFile({ path: '/a.md' }), makeFile({ path: '/b.md' })],
+      })
+
+      void useFileStore.getState().setCurrentFile('/a.md')
+      await vi.waitFor(() => expect(mockReadText).toHaveBeenCalledWith('/a.md'))
+      void useFileStore.getState().setCurrentFile('/b.md')
+      await vi.waitFor(() => expect(useEditorStore.getState().content).toBe('# B'))
+
+      finishFirstRead?.({
+        success: true,
+        data: {
+          filePath: '/a.md', content: '# A stale', encoding: 'utf8', lineEnding: 'lf',
+          version: { mtimeMs: 1, size: 9, contentHash: 'a1' }, sampled: false,
+        },
+      })
+      await vi.waitFor(() => expect(useEditorStore.getState().documentSessions['/a.md']).toBeUndefined())
+
+      void useFileStore.getState().setCurrentFile('/a.md')
+      await vi.waitFor(() => expect(useEditorStore.getState().content).toBe('# A reloaded'))
+      expect(mockReadText).toHaveBeenCalledTimes(3)
+    })
+
+    it('evicts only the oldest clean inactive sessions when the cache exceeds eight documents', async () => {
+      const documentSessions = Object.fromEntries(Array.from({ length: 10 }, (_, index) => {
+        const filePath = `/cached-${index}.md`
+        return [filePath, {
+          filePath,
+          draft: `# Cached ${index}`,
+          dirty: index === 0,
+          mode: 'markdown-read' as const,
+          scrollTop: 0,
+          snapshot: {
+            filePath,
+            content: `# Cached ${index}`,
+            encoding: 'utf8',
+            lineEnding: 'lf' as const,
+            version: { mtimeMs: index, size: 10, contentHash: `cached-${index}` },
+            sampled: false,
+          },
+          sampled: false,
+          lastActivatedAt: index,
+        }]
+      }))
+      useEditorStore.setState({ documentSessions })
+      useFileStore.setState({ currentFile: '/active.md' })
+      useEditorStore.getState().beginDocumentLoad('/active.md')
+
+      await useFileStore.getState().loadFileContent('/active.md', true)
+
+      const sessions = useEditorStore.getState().documentSessions
+      expect(sessions['/cached-0.md']).toBeDefined()
+      expect(sessions['/cached-1.md']).toBeUndefined()
+      expect(Object.keys(sessions)).toHaveLength(10)
+      expect(sessions['/active.md']?.draft).toBe('content')
     })
   })
 })

@@ -44,6 +44,7 @@ import {
 import { shouldAutoCompress } from '../../../../shared/history-compress'
 import type { FileInfo } from '../../../../shared/types'
 import { buildReviewAgentContext, shouldInjectReviewContext } from '../../utils/reviewAgentContext'
+import { parseValidatedWritePreview } from '../../utils/writePreviewPayload'
 
 const WORKING_HINTS = [
   '思考中...',
@@ -508,36 +509,23 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
             input: event.input,
           })
 
-          // write_file：注册待确认写入（确认后才真正落盘）
-          if (event.name === 'write_file' && event.input && typeof event.input === 'object') {
-            const inp = event.input as Record<string, unknown>
-            const filePath = typeof inp.filePath === 'string' ? inp.filePath : ''
-            const newContent = typeof inp.content === 'string' ? inp.content : undefined
-            const transactionId = typeof inp.transactionId === 'string' ? inp.transactionId : undefined
-            const editsRaw = Array.isArray(inp.edits) ? inp.edits : undefined
-            const edits = editsRaw
-              ?.map((e) => {
-                if (!e || typeof e !== 'object') return null
-                const row = e as Record<string, unknown>
-                const startLine = Number(row.startLine)
-                const endLine = Number(row.endLine)
-                const newText = typeof row.newText === 'string' ? row.newText : ''
-                if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) return null
-                return {
-                  startLine: Math.floor(startLine),
-                  endLine: Math.floor(endLine),
-                  newText,
-                }
-              })
-              .filter((e): e is { startLine: number; endLine: number; newText: string } => Boolean(e))
-            if (filePath) {
-              void previewChange({
-                changeId: event.id,
-                filePath,
-                newContent,
-                edits,
-                transactionId,
-              }).then((res) => {
+          break
+        }
+
+        case 'tool_result': {
+          const msgId = currentAiMessageIdRef.current
+          if (msgId) {
+            updateToolCallResult(msgId, event.id, event.content, event.isError)
+          }
+          // 主进程执行 write_file 并通过路径校验后，才登记渲染侧的待确认写入。
+          // 不能在 tool_use 阶段预览：那时的参数仍完全来自模型，尚未经过安全边界验证。
+          if (!event.isError) {
+            const toolCall = useChatStore.getState().messages
+              .find((message) => message.id === msgId)
+              ?.toolCalls?.find((call) => call.id === event.id && call.name === 'write_file')
+            const payload = toolCall ? parseValidatedWritePreview(event.content) : null
+            if (payload) {
+              void previewChange({ changeId: event.id, ...payload }).then((res) => {
                 const data = res.data
                 if (!res.success || !data) return
                 setPreviewMetaByChangeId((prev) => {
@@ -547,14 +535,6 @@ export function ChatPanel({ onNavigateToSettings }: ChatPanelProps) {
                 })
               })
             }
-          }
-          break
-        }
-
-        case 'tool_result': {
-          const msgId = currentAiMessageIdRef.current
-          if (msgId) {
-            updateToolCallResult(msgId, event.id, event.content, event.isError)
           }
           break
         }

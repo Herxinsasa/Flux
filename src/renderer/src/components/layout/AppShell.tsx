@@ -83,7 +83,7 @@ export function AppShell() {
   const reviewDragStart = useRef(reviewWidth)
 
   useEffect(() => window.electronAPI.app.onOpenFile((filePath) => {
-    // 双击文档启动：加载文件所在工作区并打开文档
+    // 双击文档启动：保留工作区，将文件加入当前工作集。
     void useFileStore.getState().openFileFromLaunch(filePath)
   }), [])
 

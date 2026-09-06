@@ -1,20 +1,21 @@
 {
-  "last_session": "2026-08-07",
-  "current_iteration": "baseline2.3-collaboration-settings",
-  "current_requirement_input": "批注回复、表格工具、工作区显隐与设置优化",
+  "last_session": "2026-09-05",
+  "current_iteration": "baseline2.0-markdown-compatibility",
+  "current_requirement_input": "P0/P1 Markdown 语法兼容、TOC 与加载缩放流畅性",
   "current_skill": "code-tester",
-  "current_step": "baseline2.3 实现、独立审查与自动化测试完成，等待人工验收清单",
-  "status": "automated_validation_complete_manual_acceptance_pending",
+  "current_step": "自动化验证完成，等待人工流畅性验收",
+  "status": "manual_acceptance_pending",
   "documents": {
-    "requirement_spec": "docs/requirements/baseline2.3-collaboration-settings-req.md",
-    "impact_analysis": "docs/requirements/baseline2.3-collaboration-settings-impact.md",
-    "requirement_design": "docs/design/baseline2.3-collaboration-settings-req-design.md",
-    "ui_design": "docs/ui/baseline2.3-collaboration-settings-ui.md",
-    "development_plan": "docs/plan/baseline2.3-collaboration-settings-dev-plan.md",
-    "review_status": "docs/testing/baseline2.3-collaboration-settings-code-review.md",
-    "test_report": "docs/testing/baseline2.3-collaboration-settings-test-report.md"
+    "requirement_spec": "docs/requirements/baseline2.0-markdown-compatibility-req.md",
+    "impact_analysis": "docs/requirements/baseline2.0-markdown-compatibility-impact.md",
+    "requirement_design": "docs/design/baseline2.0-markdown-compatibility-req-design.md",
+    "ui_design": "docs/ui/baseline2.1-editor-interaction-ui.md",
+    "development_plan": "docs/plan/baseline2.0-markdown-compatibility-dev-plan.md",
+    "review_status": null,
+    "test_report": "docs/testing/baseline2.0-markdown-compatibility-test-report.md",
+    "manual_checklist": "docs/testing/baseline2.0-markdown-compatibility-checklist.md"
   },
-  "current_task": null,
+  "current_task": "MANUAL-ACCEPTANCE",
   "blocked_items": [],
   "milestones": [
     {
@@ -72,6 +73,20 @@
       "step": "TASK-007 会话持久化与 /compact",
       "result": "已接入私有 JSONL 会话存储、checkpoint IPC、旧摘要只读兼容、/compact 本地拦截和持久化策略设置；27 个测试文件、160 项测试与生产构建通过",
       "document": "docs/plan/baseline2.0-team-ai-markdown-dev-plan.md"
+    },
+    {
+      "date": "2026-09-05",
+      "skill": "dev-planner",
+      "step": "Markdown 兼容性与流畅性迭代计划",
+      "result": "P0/P1 范围已确认，影响面闭合，进入兼容性回归与实现",
+      "document": "docs/plan/baseline2.0-markdown-compatibility-dev-plan.md"
+    },
+    {
+      "date": "2026-09-05",
+      "skill": "code-tester",
+      "step": "Markdown 兼容性与流畅性自动化验收",
+      "result": "68 个测试文件、352 项测试、类型检查和生产构建通过；进入人工体验验收",
+      "document": "docs/testing/baseline2.0-markdown-compatibility-test-report.md"
     }
   ],
   "iteration_history": []

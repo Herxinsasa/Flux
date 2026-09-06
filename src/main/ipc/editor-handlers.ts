@@ -176,6 +176,12 @@ function rollbackTransaction(transactionId: string): void {
     const entry = list[i]
     if (entry.existedBefore) {
       writeFileAtomically(entry.filePath, entry.previousContent ?? '')
+    } else {
+      try {
+        unlinkSync(entry.filePath)
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+      }
     }
   }
   appliedJournal.delete(transactionId)

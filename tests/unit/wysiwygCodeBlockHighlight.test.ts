@@ -35,6 +35,10 @@ describe('WYSIWYG code block highlighting', () => {
     expect(highlightCodeText('hello', 'not-a-real-language')).toEqual([])
   })
 
+  it.each(['markdown', 'md', 'text', 'txt', 'log'])('leaves %s code blocks plain', (language) => {
+    expect(highlightCodeText('# Heading\nconst answer = 42', language)).toEqual([])
+  })
+
   it('does not rehighlight code blocks for ordinary paragraph edits', () => {
     const doc = schema.node('doc', null, [
       schema.node('paragraph', null, schema.text('hello')),

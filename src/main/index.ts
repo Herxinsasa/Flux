@@ -1,5 +1,5 @@
 import { existsSync } from 'fs'
-import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, Menu, ipcMain, shell } from 'electron'
 import { join } from 'path'
 import { registerAllHandlers } from './ipc/index'
 import log from './logger'
@@ -34,20 +34,10 @@ app.setName('Flux')
 // Windows 任务栏分组与图标归属：与 electron-builder.yml 的 appId 保持一致
 app.setAppUserModelId('com.flux.text-editor')
 
-// 单实例锁：第二次启动时提示并退出，避免多开导致用户误以为“卡住”。
+// 单实例锁：第二次启动静默退出，由主实例接收参数、聚焦窗口并打开文件。
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) {
-  void app.whenReady().then(() => {
-    dialog.showMessageBoxSync({
-      type: 'info',
-      title: 'Flux',
-      message: 'Flux 已在运行，不支持多开。',
-      detail: '请切换到已打开的 Flux 窗口。',
-      buttons: ['确定'],
-      defaultId: 0,
-    })
-    app.quit()
-  })
+  app.quit()
 }
 
 // 窗口与任务栏图标：Windows 需 .ico 才能稳定显示；开发模式读项目 resources，

@@ -15,6 +15,9 @@ describe('markdown-path', () => {
     const base = 'F:\\docs\\readme.md'
     expect(resolvePathFromBase(base, './assets/demo.png')).toBe('F:\\docs\\assets\\demo.png')
     expect(resolvePathFromBase(base, '../img/a.png')).toBe('F:\\img\\a.png')
+    expect(resolvePathFromBase(base, './My%20Note.assets/%E5%9B%BE%E7%89%87.png')).toBe(
+      'F:\\docs\\My Note.assets\\图片.png',
+    )
   })
 
   it('resolves relative md link', () => {

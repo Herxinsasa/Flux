@@ -20,6 +20,7 @@ export interface DocumentSession {
   mode: DocumentSessionMode
   selection?: { from: number; to: number }
   scrollTop: number
+  scrollRatio?: number
   snapshot: TextDocumentSnapshot | null
   sampled: boolean
   logTotalLines?: number
@@ -109,7 +110,7 @@ interface EditorState {
   setDocumentSnapshot: (filePath: string, snapshot: TextDocumentSnapshot) => void
   setSampledDocument: (filePath: string, content: string, mode: EditorMode) => void
   setDocumentSelection: (selection: { from: number; to: number } | undefined) => void
-  setDocumentScrollTop: (scrollTop: number) => void
+  setDocumentScrollTop: (scrollTop: number, scrollRatio?: number) => void
   commitSavedDocument: (filePath: string, savedContent: string, version: FileVersion, savedGeneration: number) => void
   removeDocument: (filePath: string) => void
   discardDocumentChanges: (filePath: string) => void
@@ -203,6 +204,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       dirty: false,
       mode: sessionModeFor(mode, mode === 'markdown' ? 'wysiwyg' : get().markdownEditSurface),
       scrollTop: 0,
+      scrollRatio: 0,
       snapshot: null,
       sampled: true,
       lastActivatedAt: Date.now(),
@@ -234,6 +236,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       dirty: false,
       mode: sessionModeFor(mode, surface),
       scrollTop: 0,
+      scrollRatio: 0,
       snapshot,
       sampled: snapshot.sampled,
       lastActivatedAt: Date.now(),
@@ -263,6 +266,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       dirty: false,
       mode: sessionModeFor(mode, mode === 'markdown' ? 'source' : get().markdownEditSurface),
       scrollTop: 0,
+      scrollRatio: 0,
       snapshot: null,
       sampled: true,
       lastActivatedAt: Date.now(),
@@ -280,7 +284,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setDocumentSelection: (selection) => set((state) => updateActiveSession(state, { selection })),
-  setDocumentScrollTop: (scrollTop) => set((state) => updateActiveSession(state, { scrollTop })),
+  setDocumentScrollTop: (scrollTop, scrollRatio) =>
+    set((state) => updateActiveSession(state, { scrollTop, scrollRatio })),
 
   commitSavedDocument: (filePath, savedContent, version, savedGeneration) => {
     const key = normalizeDocumentPath(filePath)
