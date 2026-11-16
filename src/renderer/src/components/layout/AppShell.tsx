@@ -32,6 +32,9 @@ import {
   type UnsavedDecision,
 } from '../../utils/unsavedChangesGuard'
 import { saveDocument } from '../../utils/documentSave'
+import { getWorkspaceRevision } from '../../utils/workspaceSync'
+import { setDocumentOperationsFrozen, waitForDocumentOperations } from '../../utils/documentOperations'
+import { flushPendingEditorDraft } from '../../utils/editorDraftBuffer'
 
 type OverlayView = 'none' | 'settings' | 'skills' | 'help'
 
@@ -54,6 +57,9 @@ export function AppShell() {
     resolve: (decision: UnsavedDecision) => void
   } | null>(null)
   const promptActiveRef = useRef(false)
+  const pendingPromptRef = useRef<((decision: UnsavedDecision) => void) | null>(null)
+  const closeRequestRef = useRef<string | null>(null)
+  const cancelledCloseRequests = useRef(new Set<string>())
   const [unsavedSaving, setUnsavedSaving] = useState(false)
 
   const sidebarWidth = useLayoutStore((s) => s.sidebarWidth)
@@ -93,6 +99,7 @@ export function AppShell() {
       return
     }
     promptActiveRef.current = true
+    pendingPromptRef.current = resolve
     setUnsavedPrompt({ filePath, resolve })
   })), [])
 
@@ -100,6 +107,7 @@ export function AppShell() {
     const pending = unsavedPrompt
     if (!pending) return
     promptActiveRef.current = false
+    pendingPromptRef.current = null
     setUnsavedSaving(false)
     setUnsavedPrompt(null)
     pending.resolve(decision)
@@ -113,14 +121,92 @@ export function AppShell() {
     else setUnsavedSaving(false)
   }, [resolveUnsavedPrompt, unsavedPrompt, unsavedSaving])
 
-  useEffect(() => window.electronAPI.app.onCloseRequest(() => {
-    void (async () => {
-      for (const filePath of listDirtyDocumentPaths()) {
-        if (!(await confirmUnsavedDocument(filePath))) return
+  useEffect(() => {
+    let barrier: HTMLDivElement | null = null
+    let checking: string | null = null
+    const events = ['keydown', 'beforeinput', 'paste', 'cut', 'drop']
+    const stopInput = (event: Event) => {
+      if (promptActiveRef.current && event instanceof KeyboardEvent && ['Escape', 'Enter', 'Tab'].includes(event.key)) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+    const freeze = () => {
+      if (barrier) return
+      setDocumentOperationsFrozen(true)
+      barrier = document.createElement('div')
+      Object.assign(barrier.style, { position: 'fixed', inset: '0', zIndex: '9997' })
+      document.body.appendChild(barrier)
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      flushPendingEditorDraft()
+      for (const name of events) window.addEventListener(name, stopInput, true)
+    }
+    const unfreeze = () => {
+      barrier?.remove()
+      barrier = null
+      setDocumentOperationsFrozen(false)
+      for (const name of events) window.removeEventListener(name, stopInput, true)
+    }
+    const onInitialize = window.electronAPI.window.onInitialize((payload) => {
+      useSettingsStore.getState().applyAppearance(payload)
+      if (payload.workspaceRoot) void useFileStore.getState().openFolder(payload.workspaceRoot, true)
+    })
+    const onAppearance = window.electronAPI.appearance.onChanged((snapshot) => useSettingsStore.getState().applyAppearance(snapshot))
+    const onReserved = window.electronAPI.document.onOpenReserved((credential) => {
+      void useFileStore.getState().openFile(credential.filePath, credential)
+    })
+    const onQuery = window.electronAPI.window.onWorkspaceQuery(({ requestId }) => {
+      void window.electronAPI.window.workspaceSnapshot(requestId, useFileStore.getState().workspaceRoot, getWorkspaceRevision())
+    })
+    const onCancelled = window.electronAPI.app.onCloseCancelled(({ requestId }) => {
+      cancelledCloseRequests.current.add(requestId)
+      if (closeRequestRef.current === requestId) {
+        closeRequestRef.current = null
+        checking = null
+        pendingPromptRef.current?.('cancel')
+        pendingPromptRef.current = null
+        promptActiveRef.current = false
+        setUnsavedPrompt(null)
+        unfreeze()
       }
-      window.electronAPI.app.approveClose()
-    })()
-  }), [])
+    })
+    const onClose = window.electronAPI.app.onCoordinatedClose((request) => {
+      if (cancelledCloseRequests.current.has(request.requestId)) return
+      if (closeRequestRef.current && closeRequestRef.current !== request.requestId) return
+      closeRequestRef.current = request.requestId
+      freeze()
+      if (request.phase === 'freeze') {
+        void waitForDocumentOperations().then(() => window.setTimeout(() => {
+          if (closeRequestRef.current === request.requestId) {
+            flushPendingEditorDraft()
+            window.electronAPI.app.closeResult({ requestId: request.requestId, result: 'frozen' })
+          }
+        }, 0))
+        return
+      }
+      if (checking === request.requestId) return
+      checking = request.requestId
+      void (async () => {
+        try {
+          await waitForDocumentOperations()
+          if (closeRequestRef.current !== request.requestId) return
+          flushPendingEditorDraft()
+          for (const filePath of listDirtyDocumentPaths()) {
+            if (!(await confirmUnsavedDocument(filePath))) {
+              window.electronAPI.app.closeResult({ requestId: request.requestId, result: 'cancelled' })
+              return
+            }
+          }
+          if (closeRequestRef.current === request.requestId) window.electronAPI.app.closeResult({ requestId: request.requestId, result: 'approved' })
+        } catch {
+          window.electronAPI.app.closeResult({ requestId: request.requestId, result: 'failed' })
+        }
+      })()
+    })
+    void window.electronAPI.window.ready().then((response) => {
+      if (!response.success) window.alert(response.error ?? '窗口初始化失败，请重新打开窗口')
+    }).catch((error) => window.alert(error instanceof Error ? error.message : '窗口初始化失败，请重新打开窗口'))
+    return () => { onInitialize(); onAppearance(); onReserved(); onQuery(); onCancelled(); onClose(); unfreeze() }
+  }, [])
 
   useEffect(() => {
     if (!currentFile || activeDocumentPath !== normalizeDocumentPath(currentFile)) return
@@ -184,8 +270,6 @@ export function AppShell() {
 
   const handleToggleTheme = useCallback(() => {
     toggleTheme()
-    const t = useSettingsStore.getState().theme
-    void window.electronAPI.settings.save({ theme: t })
   }, [toggleTheme])
 
   const unsavedDialog = (

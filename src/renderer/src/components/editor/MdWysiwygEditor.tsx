@@ -52,12 +52,14 @@ import { useLayoutStore } from '../../stores/layoutStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { DEFAULT_READING_PREFERENCES, useSettingsStore } from '../../stores/settingsStore'
 import { MarkdownContextMenu } from './MarkdownContextMenu'
+import { LinkDialog } from './LinkDialog'
 import type { MarkdownCommandId } from './sourceMarkdownCommands'
 import { WysiwygReviewComposer } from './WysiwygReviewComposer'
 import { WysiwygSearchPanel, wysiwygSearchPlugin } from './WysiwygSearchPanel'
 import { wysiwygMarkdownInputAssist } from './wysiwygMarkdownInputAssist'
 import { createWysiwygTaskListPlugin, emptyTaskListRemarkPlugin } from './wysiwygTaskList'
-import { runWysiwygMarkdownCommand } from './wysiwygMarkdownCommands'
+import { applyWysiwygLink, runWysiwygMarkdownCommand } from './wysiwygMarkdownCommands'
+import { findWysiwygLinkRange, selectionContainsImage } from './wysiwygLinkRange'
 import { resolveSerializedReviewAnchor } from './wysiwygReviewAnchor'
 import { mermaidCodeBlockView, refreshMermaidCodeBlockViews } from './mermaidCodeBlockView'
 import { wysiwygCodeBlockHighlight } from './wysiwygCodeBlockHighlight'
@@ -230,6 +232,55 @@ function MdWysiwygEditorInner({
   const [viewReady, setViewReady] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
+  const [linkDialog, setLinkDialog] = useState<{
+    mode: 'insert' | 'edit'
+    href: string
+    text: string
+    range: { from: number; to: number }
+  } | null>(null)
+  const [linkError, setLinkError] = useState('')
+
+  const openLinkDialog = useCallback(() => {
+    const view = viewRef.current
+    if (!view) return
+    const { from, to } = view.state.selection
+    if (selectionContainsImage(view.state.doc, from, to)) return
+    const linkType = view.state.schema.marks.link
+    const existing = linkType ? findWysiwygLinkRange(view.state.doc, from, to, linkType) : null
+    const selectedText = from === to ? '' : view.state.doc.textBetween(from, to, '\n').trim()
+    setLinkError('')
+    setLinkDialog({
+      mode: existing ? 'edit' : 'insert',
+      href: existing?.href || 'https://',
+      text: existing?.text || selectedText || '链接文本',
+      range: existing ? { from: existing.from, to: existing.to } : { from, to },
+    })
+  }, [])
+
+  const submitLink = useCallback(
+    (value: { href: string; text: string }) => {
+      const editor = editorRef.current
+      if (!editor || !linkDialog) return
+      userEditRef.current = true
+      const applied = applyWysiwygLink(editor, {
+        href: value.href,
+        text: value.text,
+        range: linkDialog.range,
+      })
+      if (applied) {
+        setLinkDialog(null)
+        setLinkError('')
+      } else {
+        setLinkError('无法在此位置插入链接，请重新选择文本')
+      }
+    },
+    [linkDialog],
+  )
+
+  useEffect(() => {
+    setLinkDialog(null)
+    setLinkError('')
+  }, [fileKey])
 
   // Ctrl+F 打开搜索（编辑区域）
   useEffect(() => {
@@ -651,10 +702,14 @@ function MdWysiwygEditorInner({
       listenForMarkdownCommands((command) => {
         const editor = editorRef.current
         if (!editor || isReadOnly) return
+        if (command === 'insert-link') {
+          openLinkDialog()
+          return
+        }
         userEditRef.current = true
         runWysiwygMarkdownCommand(editor, command)
       }),
-    [isReadOnly],
+    [isReadOnly, openLinkDialog],
   )
 
   const refreshTableTools = useCallback(() => {
@@ -805,9 +860,13 @@ function MdWysiwygEditorInner({
     const command = useEditorStore.getState().markdownCommand
     const editor = editorRef.current
     if (!command || !editor) return
-    runWysiwygMarkdownCommand(editor, command)
+    if (command === 'insert-link') {
+      openLinkDialog()
+    } else {
+      runWysiwygMarkdownCommand(editor, command)
+    }
     useEditorStore.getState().clearMarkdownCommand()
-  }, [markdownCommandTick])
+  }, [markdownCommandTick, openLinkDialog])
 
   const handleContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const editor = editorRef.current
@@ -878,10 +937,14 @@ function MdWysiwygEditorInner({
         return
       }
 
+      if (command === 'insert-link') {
+        openLinkDialog()
+        return
+      }
       userEditRef.current = true
       runWysiwygMarkdownCommand(editor, command)
     },
-    [aiConfigured, contextMenu, currentFileName],
+    [aiConfigured, contextMenu, currentFileName, openLinkDialog],
   )
 
   const handleImagePaste = useCallback(
@@ -962,7 +1025,7 @@ function MdWysiwygEditorInner({
             zoom: contentZoom,
             fontSize: `${DEFAULT_READING_PREFERENCES.bodyFontSize}px`,
             '--content-zoom': `${contentZoom}`,
-            '--font-code-size': `${codeFontSize}px`,
+            '--font-code-size': `${codeFontSize / contentZoom}px`,
           } as CSSProperties
         }
       />
@@ -1057,6 +1120,22 @@ function MdWysiwygEditorInner({
             if (saved) setReviewComposer(null)
             return saved
           }}
+        />
+      )}
+      {linkDialog && (
+        <LinkDialog
+          open
+          mode={linkDialog.mode}
+          initialHref={linkDialog.href}
+          initialText={linkDialog.text}
+          onCancel={() => {
+            setLinkDialog(null)
+            setLinkError('')
+            viewRef.current?.focus()
+          }}
+          onSubmit={submitLink}
+          submitError={linkError}
+          onClearSubmitError={() => setLinkError('')}
         />
       )}
     </div>

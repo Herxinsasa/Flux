@@ -19,7 +19,8 @@
   --border-visible: #ffffff1a;
   --task-checkbox-border: #ffffff73;
   --markdown-code-block-bg: #2e2e30;
-  --markdown-table-header-bg: #343438;
+  --markdown-table-header-bg: #3b3b40;
+  --markdown-table-border: #ffffff33;
 
   --text-primary: #ffffff;
   --text-secondary: #d4d4d4;
@@ -41,6 +42,7 @@
 
   --font-ui: 'Inter', -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --font-code-size: 14px;
   --radius-sm: 6px;
   --radius-md: 8px;
   --transition-fast: 150ms ease-out;
@@ -81,6 +83,12 @@
   line-height: 1.5;
   /* 覆盖 CodeMirror 默认的聚焦虚线描边（关闭确认弹窗时焦点变化会闪现） */
   outline: none !important;
+}
+
+.editor-pane-container[data-editor-mode='markdown'] .cm-editor .cm-scroller {
+  font-family: var(--font-mono);
+  font-size: var(--font-code-size);
+  line-height: 1.6;
 }
 
 /* 普通文本、JSON 与日志跟随可配置编辑字体；Markdown 源码继续使用等宽字体。 */
@@ -276,7 +284,8 @@
   --border-visible: #d0d7de;
   --task-checkbox-border: #57606a;
   --markdown-code-block-bg: #f0f0f2;
-  --markdown-table-header-bg: #e8e8ea;
+  --markdown-table-header-bg: #dfe4e8;
+  --markdown-table-border: #c9d1d9;
 
   --text-primary: #24292f;
   --text-secondary: #57606a;
@@ -777,7 +786,7 @@ svg.lucide {
 
 .markdown-preview code {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-code-size);
   background: var(--bg-card);
   padding: 2px 6px;
   border-radius: 4px;
@@ -797,8 +806,8 @@ svg.lucide {
 .markdown-preview pre code {
   background: transparent;
   padding: 0;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--font-code-size);
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -813,7 +822,7 @@ svg.lucide {
 
 .markdown-preview th,
 .markdown-preview td {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--markdown-table-border);
   padding: 8px 12px;
   text-align: left;
   overflow-wrap: anywhere;
@@ -2682,7 +2691,7 @@ svg.lucide {
   padding: 0;
   background: transparent;
   font-size: var(--font-code-size);
-  line-height: 1.5;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2710,7 +2719,7 @@ svg.lucide {
 .flux-milkdown-root .hljs-comment,
 .flux-milkdown-root .hljs-quote {
   color: #7f8ea3;
-  font-style: italic;
+  font-style: normal;
 }
 .markdown-preview .hljs-keyword,
 .markdown-preview .hljs-selector-tag,
@@ -2804,7 +2813,7 @@ svg.lucide {
 .flux-milkdown-root .ProseMirror td {
   padding: 8px 12px;
   overflow-wrap: anywhere;
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--markdown-table-border);
   text-align: left;
   word-break: break-word;
 }
@@ -3264,4 +3273,99 @@ svg.lucide {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Link Dialog                                                        */
+/* ------------------------------------------------------------------ */
+
+.flux-link-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.flux-link-dialog {
+  width: min(420px, calc(100vw - 48px));
+  padding: 20px 24px;
+  border: 1px solid var(--border-visible);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.28);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+}
+
+.flux-link-dialog h2 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.flux-link-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.flux-link-dialog input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-visible);
+  border-radius: var(--radius-sm);
+  background: var(--bg-viewer);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+.flux-link-dialog input:focus {
+  border-color: transparent;
+  outline: 2px solid var(--accent);
+}
+
+.flux-link-dialog-error {
+  margin: 0 0 10px;
+  color: var(--error);
+  font-size: 12px;
+}
+
+.flux-link-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.flux-link-dialog-actions button {
+  padding: 7px 16px;
+  border: 1px solid var(--border-visible);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.flux-link-dialog-actions button:hover {
+  background: var(--hover);
+}
+
+.flux-link-dialog-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.flux-link-dialog-actions button.primary:hover {
+  background: var(--accent);
+  opacity: 0.9;
 }

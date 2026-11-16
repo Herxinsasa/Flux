@@ -14,6 +14,7 @@ import {
 import { saveActiveDocument } from '../utils/documentSave'
 import type { MarkdownCommandId } from '../components/editor/markdownCommandModel'
 import { dispatchMarkdownCommand } from '../components/editor/markdownCommandEvents'
+import { openNewWindow } from '../utils/windowActions'
 
 export { getSaveErrorMessage, saveActiveDocument } from '../utils/documentSave'
 
@@ -97,6 +98,13 @@ export function useShortcuts() {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.isComposing) return
       const mod = e.ctrlKey || e.metaKey
+
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        e.stopPropagation()
+        void openNewWindow()
+        return
+      }
 
       if (mod && e.key === 'Tab') {
         e.preventDefault()

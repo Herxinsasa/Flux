@@ -24,7 +24,6 @@ export function useProvider(): UseProviderReturn {
   const setProviders = useSettingsStore((s) => s.setProviders)
   const setActiveProvider = useSettingsStore((s) => s.setActiveProvider)
   const setConfigured = useSettingsStore((s) => s.setConfigured)
-  const setTheme = useSettingsStore((s) => s.setTheme)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, TestResult | null>>({})
 
@@ -59,9 +58,6 @@ export function useProvider(): UseProviderReturn {
         if (resp.data.configured !== undefined) {
           setConfigured(resp.data.configured)
         }
-        if (resp.data.theme === 'light' || resp.data.theme === 'dark') {
-          setTheme(resp.data.theme)
-        }
         if (resp.data.providerModelOptions) {
           useSettingsStore.getState().setProviderModelOptions(resp.data.providerModelOptions)
         }
@@ -69,7 +65,7 @@ export function useProvider(): UseProviderReturn {
     } catch (_err) {
       // Store load failed; keep defaults
     }
-  }, [setProviders, setActiveProvider, setConfigured, setTheme])
+  }, [setProviders, setActiveProvider, setConfigured])
 
   /** Persist current providers to electron-store via IPC */
   const save = useCallback(async () => {
@@ -77,7 +73,6 @@ export function useProvider(): UseProviderReturn {
     const payload = {
       providers: current.providers.slice(0, 1).map((p) => ({ ...p })),
       activeProvider: current.activeProvider,
-      theme: current.theme,
       providerModelOptions: current.providerModelOptions,
     }
 

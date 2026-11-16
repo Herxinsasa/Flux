@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useFileStore } from '../../stores/fileStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { MARKDOWN_COMMAND_GROUPS } from '../editor/markdownCommandModel'
+import { openNewWindow } from '../../utils/windowActions'
 
 type TopMenu = 'file' | 'edit' | 'paragraph' | 'view' | 'help' | null
 
@@ -99,6 +100,9 @@ export function MenuBar({ onOpenSettings, onOpenSkills, onOpenHelp, onOpenAbout 
           <div
             className="absolute left-0 top-full mt-0.5 py-1 min-w-[200px] rounded-[var(--radius-sm)] border border-[var(--border-visible)] bg-[var(--bg-card)] shadow-lg z-[200]"
           >
+            <button type="button" className={itemClass} onClick={() => { close(); void openNewWindow() }}>
+              新建窗口 <span className="text-[var(--text-hint)]">Ctrl+Shift+N</span>
+            </button>
             <button
               type="button"
               className={itemClass}

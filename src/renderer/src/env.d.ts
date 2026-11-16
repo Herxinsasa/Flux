@@ -8,6 +8,27 @@ declare global {
         onOpenFile: (callback: (filePath: string) => void) => () => void
         onCloseRequest: (callback: () => void) => () => void
         approveClose: () => void
+        closeResult: (result: import('../../../shared/types').CloseResult) => void
+        onCoordinatedClose: (callback: (request: import('../../../shared/types').CloseRequest) => void) => () => void
+        onCloseCancelled: (callback: (request: { requestId: string }) => void) => () => void
+      }
+      window: {
+        create: (request: import('../../../shared/types').WindowCreateRequest) => Promise<import('../../../shared/types').IpcResponse<{ created: boolean; focused?: boolean }>>
+        ready: () => Promise<import('../../../shared/types').IpcResponse<{ ready: true }>>
+        workspaceChanged: (workspaceRoot: string | null, revision: number) => Promise<import('../../../shared/types').IpcResponse<{ accepted: boolean }>>
+        workspaceSnapshot: (requestId: string, workspaceRoot: string | null, revision: number) => Promise<import('../../../shared/types').IpcResponse<{ accepted: true }>>
+        onWorkspaceQuery: (callback: (payload: { requestId: string }) => void) => () => void
+        onInitialize: (callback: (payload: import('../../../shared/types').WindowInitialization) => void) => () => void
+      }
+      document: {
+        reserve: (request: import('../../../shared/types').DocumentReservationRequest) => Promise<import('../../../shared/types').IpcResponse<import('../../../shared/types').DocumentReservation>>
+        commit: (request: import('../../../shared/types').DocumentCredential) => Promise<import('../../../shared/types').IpcResponse<{ accepted: true }>>
+        release: (request: import('../../../shared/types').DocumentCredential) => Promise<import('../../../shared/types').IpcResponse<{ accepted: true }>>
+        onOpenReserved: (callback: (payload: import('../../../shared/types').DocumentCredential) => void) => () => void
+      }
+      appearance: {
+        update: (update: import('../../../shared/types').AppearanceUpdate) => Promise<import('../../../shared/types').IpcResponse<{ revision: number }>>
+        onChanged: (callback: (snapshot: import('../../../shared/types').AppearanceSnapshot) => void) => () => void
       }
       recent: {
         list: () => Promise<{ success: boolean; data?: import('../../../shared/recent').RecentItemData[]; error?: string }>
@@ -33,7 +54,7 @@ declare global {
       }
       file: {
         open: () => Promise<unknown>
-        create: () => Promise<unknown>
+        create: (credential?: import('../../../shared/types').DocumentCredential) => Promise<unknown>
         openFolder: (root?: string) => Promise<unknown>
         listWorkspaceFiles: (root: string) => Promise<unknown>
         scanWorkspace: (root: string) => Promise<{ success: boolean; data?: import('../../../shared/types').TaskStartData; error?: string }>

@@ -89,6 +89,62 @@ export interface IpcResponse<T = unknown> {
   code?: FluxErrorCode;
 }
 
+export interface WindowCreateRequest {
+  workspaceRoot: string | null
+  filePath?: string
+}
+
+export interface DocumentReservationRequest {
+  filePath: string
+  purpose: 'open' | 'create'
+}
+
+export interface DocumentCredential {
+  filePath: string
+  reservationId: string
+}
+
+export type DocumentReservation =
+  | ({ status: 'reserved' | 'owned' } & DocumentCredential)
+  | { status: 'focused'; filePath: string }
+
+export interface WindowInitialization {
+  workspaceRoot: string | null
+  revision: number
+  theme: 'dark' | 'light'
+  readingPreferences: ReadingPreferences
+}
+
+export interface ReadingPreferences {
+  uiFontFamily: string
+  editorFontFamily: string
+  monoFontFamily: string
+  bodyFontSize: number
+  codeFontSize: number
+}
+
+export interface AppearanceSnapshot {
+  revision: number
+  theme: 'dark' | 'light'
+  readingPreferences: ReadingPreferences
+}
+
+export interface AppearanceUpdate {
+  theme?: 'dark' | 'light'
+  readingPreferences?: Partial<ReadingPreferences>
+}
+
+export interface CloseRequest {
+  requestId: string
+  scope: 'window' | 'application'
+  phase: 'freeze' | 'check'
+}
+
+export interface CloseResult {
+  requestId: string
+  result: 'frozen' | 'approved' | 'cancelled' | 'failed'
+}
+
 export type ProgressCallback = (progress: { loaded: number; total: number }) => void;
 
 export interface SkillMeta {

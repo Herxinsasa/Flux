@@ -107,8 +107,8 @@ interface EditorState {
   documentSessions: Record<string, DocumentSession>
   activateDocument: (filePath: string) => boolean
   beginDocumentLoad: (filePath: string) => void
-  setDocumentSnapshot: (filePath: string, snapshot: TextDocumentSnapshot) => void
-  setSampledDocument: (filePath: string, content: string, mode: EditorMode) => void
+  setDocumentSnapshot: (filePath: string, snapshot: TextDocumentSnapshot, activate?: boolean) => void
+  setSampledDocument: (filePath: string, content: string, mode: EditorMode, activate?: boolean) => void
   setDocumentSelection: (selection: { from: number; to: number } | undefined) => void
   setDocumentScrollTop: (scrollTop: number, scrollRatio?: number) => void
   commitSavedDocument: (filePath: string, savedContent: string, version: FileVersion, savedGeneration: number) => void
@@ -224,7 +224,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }))
   },
 
-  setDocumentSnapshot: (filePath, snapshot) => {
+  setDocumentSnapshot: (filePath, snapshot, activate = true) => {
     const key = normalizeDocumentPath(filePath)
     const mode = inferMode(filePath)
     const surface = mode === 'markdown'
@@ -242,7 +242,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       lastActivatedAt: Date.now(),
       editGeneration: 0,
     }
-    set((state) => ({
+    set((state) => activate ? ({
       activeDocumentPath: key,
       documentSessions: { ...state.documentSessions, [key]: session },
       content: snapshot.content,
@@ -255,10 +255,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedLineRange: null,
       previewContent: null,
       editorHydrationEpoch: state.editorHydrationEpoch + 1,
-    }))
+    }) : ({ documentSessions: { ...state.documentSessions, [key]: session } }))
   },
 
-  setSampledDocument: (filePath, content, mode) => {
+  setSampledDocument: (filePath, content, mode, activate = true) => {
     const key = normalizeDocumentPath(filePath)
     const session: DocumentSession = {
       filePath,
@@ -272,7 +272,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       lastActivatedAt: Date.now(),
       editGeneration: 0,
     }
-    set((state) => ({
+    set((state) => activate ? ({
       activeDocumentPath: key,
       documentSessions: { ...state.documentSessions, [key]: session },
       content,
@@ -280,7 +280,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       mode,
       markdownEditSurface: mode === 'markdown' ? 'source' : state.markdownEditSurface,
       editorHydrationEpoch: state.editorHydrationEpoch + 1,
-    }))
+    }) : ({ documentSessions: { ...state.documentSessions, [key]: session } }))
   },
 
   setDocumentSelection: (selection) => set((state) => updateActiveSession(state, { selection })),

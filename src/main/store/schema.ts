@@ -1,3 +1,6 @@
+import type { ReadingPreferences } from '../../shared/types'
+export type { ReadingPreferences } from '../../shared/types'
+
 export interface ProviderConfig {
   id: string
   name: string
@@ -13,14 +16,6 @@ export interface RecentItem {
   openedAt: number
 }
 
-export interface ReadingPreferences {
-  uiFontFamily: string
-  editorFontFamily: string
-  monoFontFamily: string
-  bodyFontSize: number
-  codeFontSize: number
-}
-
 export interface StoreSchema {
   schemaVersion: 2
   theme: 'dark' | 'light'
@@ -31,6 +26,7 @@ export interface StoreSchema {
   recentItems: RecentItem[]
   onboardingCompleted: boolean
   readingPreferences: ReadingPreferences
+  codeFontMigrationVersion?: number
   providerModelOptions: Record<string, string[]>
   sessionPersistenceEnabled: boolean
   sessionRetentionDays: number
@@ -49,9 +45,9 @@ export const STORE_DEFAULTS: StoreSchema = {
   readingPreferences: {
     uiFontFamily: 'Microsoft YaHei',
     editorFontFamily: 'Microsoft YaHei',
-    monoFontFamily: 'Consolas',
+    monoFontFamily: 'Cascadia Mono',
     bodyFontSize: 14,
-    codeFontSize: 13,
+    codeFontSize: 14,
   },
   providerModelOptions: {},
   sessionPersistenceEnabled: false,

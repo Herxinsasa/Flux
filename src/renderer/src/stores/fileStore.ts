@@ -10,11 +10,14 @@ import type {
   WorkspaceScanEvent,
 } from '../../../shared/types'
 import { EDITOR_LARGE_FILE_BYTES, EDITOR_SAMPLE_LINES } from '../../../shared/context-budget'
-import { confirmUnsavedDocument, listDirtyDocumentPaths } from '../utils/unsavedChangesGuard'
+import { confirmUnsavedDocument, listDirtyDocumentPaths, prepareUnsavedDocument } from '../utils/unsavedChangesGuard'
 import { captureEditableFocus } from '../utils/editorFocus'
+import { reportWorkspaceChanged } from '../utils/workspaceSync'
+import { beginDocumentOperation } from '../utils/documentOperations'
 
 /** Track in-flight loads to prevent concurrent loadContent calls for the same file. */
 const _loadingPaths = new Set<string>()
+const _documentCredentials = new Map<string, import('../../../shared/types').DocumentCredential>()
 /** Active renderer-side stream subscriptions keyed by file path. */
 const _streamUnsubs = new Map<string, () => void>()
 let _workspaceScanUnsub: (() => void) | null = null
@@ -25,6 +28,14 @@ let _workspaceScanRequestVersion = 0
 let _logIndexUnsub: (() => void) | null = null
 let _logIndexRequestVersion = 0
 let _navigationRequestVersion = 0
+let _navigationPromptPending = false
+const _navigationPromptWaiters = new Set<() => void>()
+let _navigationPrompt: NavigationPromptEntry | null = null
+let _openFileSequence = 0
+let _openFileRequestVersion = 0
+const _openFileInFlightByPath = new Map<string, number>()
+const _openFileSettledByPath = new Map<string, Promise<void>>()
+let _workspaceSelectionVersion = 0
 const _externalReloadChecks = new Set<string>()
 const MAX_INACTIVE_DOCUMENT_CACHE = 8
 const MAX_INACTIVE_DOCUMENT_CACHE_BYTES = 64 * 1024 * 1024
@@ -67,6 +78,100 @@ function discardPendingDocumentLoad(filePath: string): void {
   const session = useEditorStore.getState().documentSessions[key]
   if (!session || session.dirty || session.snapshot !== null || session.draft.length > 0) return
   useEditorStore.getState().removeDocument(filePath)
+}
+
+interface NavigationPreparation {
+  proceed: boolean
+  finalize: () => Promise<void>
+}
+
+interface NavigationPromptEntry {
+  key: string
+  promise: Promise<NavigationPreparation>
+}
+
+function setNavigationPromptPending(pending: boolean): void {
+  _navigationPromptPending = pending
+  if (pending) return
+  for (const resolve of _navigationPromptWaiters) resolve()
+  _navigationPromptWaiters.clear()
+}
+
+function waitForNavigationPromptToSettle(): Promise<void> {
+  if (!_navigationPromptPending) return Promise.resolve()
+  return new Promise((resolve) => _navigationPromptWaiters.add(resolve))
+}
+
+/** 并发导航共用同源文档的一次未保存确认，避免重复弹窗与并发取消。 */
+async function prepareNavigationSource(filePath: string): Promise<NavigationPreparation> {
+  const key = normalizeDocumentPath(filePath)
+  while (true) {
+    if (_navigationPrompt) {
+      if (_navigationPrompt.key === key) return _navigationPrompt.promise
+      await _navigationPrompt.promise.catch(() => undefined)
+      continue
+    }
+    if (_navigationPromptPending) {
+      await waitForNavigationPromptToSettle()
+      continue
+    }
+    break
+  }
+  const entry: NavigationPromptEntry = {
+    key,
+    promise: prepareUnsavedDocument(filePath).finally(() => {
+      if (_navigationPrompt === entry) _navigationPrompt = null
+      setNavigationPromptPending(false)
+    }),
+  }
+  _navigationPrompt = entry
+  setNavigationPromptPending(true)
+  return entry.promise
+}
+
+/** 等待同路径的完整打开落定；若本请求已被更新请求取代则提前返回。 */
+async function waitForDuplicateOpenToSettle(pathKey: string, requestVersion: number): Promise<void> {
+  while (true) {
+    if (requestVersion !== _openFileRequestVersion) return
+    const pending = _openFileSettledByPath.get(pathKey)
+    if (pending) {
+      await pending.catch(() => undefined)
+      continue
+    }
+    if (_navigationPromptPending) {
+      await waitForNavigationPromptToSettle()
+      continue
+    }
+    return
+  }
+}
+
+function stopLogIndex(status: 'idle' | 'cancelled'): void {
+  _logIndexRequestVersion++
+  const taskId = useFileStore.getState().logIndexTaskId
+  if (taskId) void window.electronAPI.log.cancelIndex(taskId)
+  _logIndexUnsub?.()
+  _logIndexUnsub = null
+  useFileStore.setState({
+    logIndexTaskId: null,
+    logIndexStatus: taskId ? status : 'idle',
+    logIndexError: null,
+  })
+}
+
+/** 文档切换时丢弃旧索引；复位为 idle，避免新文件展示“日志索引已取消”。 */
+function resetLogIndexForDocumentSwitch(): void {
+  const state = useFileStore.getState()
+  if (
+    state.logIndexTaskId === null &&
+    _logIndexUnsub === null &&
+    state.logIndexStatus === 'idle' &&
+    useEditorStore.getState().logIndexedPath === null
+  ) {
+    return
+  }
+  stopLogIndex('idle')
+  useEditorStore.getState().clearLogIndexedView()
 }
 
 async function promptExternalFileReload(filePath: string): Promise<void> {
@@ -223,20 +328,20 @@ interface FileState {
   cancelLogIndex: () => void
   addFile: (file: FileEntry) => void
   removeFile: (path: string) => void
-  setCurrentFile: (path: string | null, preserveMru?: boolean) => Promise<boolean>
+  setCurrentFile: (path: string | null, preserveMru?: boolean, skipConfirmation?: boolean) => Promise<boolean>
   cycleMru: (direction: 1 | -1) => void
   setLoading: (loading: boolean) => void
-  openFile: (filePath?: string) => Promise<void>
+  openFile: (filePath?: string, credential?: import('../../../shared/types').DocumentCredential) => Promise<void>
   /** 双击文档启动：保留现有工作区，将文档作为普通或外部工作集文件打开 */
   openFileFromLaunch: (filePath: string) => Promise<void>
   createFile: () => Promise<void>
-  openFolder: (root?: string) => Promise<void>
+  openFolder: (root?: string, initialize?: boolean) => Promise<void>
   clearWorkspace: () => void
   /** 从工作区列表打开文件（必要时加入已打开列表） */
   openWorkspaceFile: (filePath: string) => Promise<void>
   /** 打开 Markdown 链接：关闭来源文件并切换到目标文件 */
   openLinkedMarkdown: (targetPath: string, replacePath: string) => Promise<void>
-  loadFileContent: (filePath: string, force?: boolean) => Promise<void>
+  loadFileContent: (filePath: string, force?: boolean) => Promise<boolean>
 }
 
 export const useFileStore = create<FileState>((set, get) => ({
@@ -311,6 +416,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({ workspaceScanTaskId: null, workspaceScanStatus: taskId ? 'cancelled' : 'idle' })
   },
   startLogIndex: async (filePath) => {
+    if (!get().currentFile || normalizeDocumentPath(get().currentFile!) !== normalizeDocumentPath(filePath)) return
     get().cancelLogIndex()
     _logIndexUnsub?.()
 
@@ -318,7 +424,12 @@ export const useFileStore = create<FileState>((set, get) => ({
     const requestVersion = ++_logIndexRequestVersion
     const queued: LogIndexTaskEvent[] = []
     const applyEvent = (event: LogIndexTaskEvent) => {
-      if (event.taskId !== taskId || get().currentFile !== filePath || requestVersion !== _logIndexRequestVersion) return
+      if (event.taskId !== taskId) return
+      if (get().currentFile !== filePath || requestVersion !== _logIndexRequestVersion) {
+        if (_logIndexUnsub === unsubscribe) _logIndexUnsub = null
+        unsubscribe()
+        return
+      }
       if (event.status === 'progress') return
       if (event.status === 'complete' && event.data) {
         useEditorStore.getState().setLogIndexedView(filePath, event.data.totalLines)
@@ -345,8 +456,12 @@ export const useFileStore = create<FileState>((set, get) => ({
         _logIndexUnsub = null
         unsubscribe()
       }
-      if (get().currentFile === filePath && requestVersion === _logIndexRequestVersion) {
-        set({ logIndexStatus: 'error', logIndexError: response.error ?? 'Log indexing failed' })
+      if (requestVersion === _logIndexRequestVersion) {
+        if (get().currentFile === filePath) {
+          set({ logIndexStatus: 'error', logIndexError: response.error ?? 'Log indexing failed' })
+        } else {
+          set({ logIndexTaskId: null, logIndexStatus: 'idle', logIndexError: null })
+        }
       }
       return
     }
@@ -354,14 +469,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({ logIndexTaskId: taskId })
     queued.forEach(applyEvent)
   },
-  cancelLogIndex: () => {
-    _logIndexRequestVersion++
-    const taskId = get().logIndexTaskId
-    if (taskId) void window.electronAPI.log.cancelIndex(taskId)
-    _logIndexUnsub?.()
-    _logIndexUnsub = null
-    set({ logIndexTaskId: null, logIndexStatus: taskId ? 'cancelled' : 'idle', logIndexError: null })
-  },
+  cancelLogIndex: () => stopLogIndex('cancelled'),
   files: [],
   currentFile: null,
   mru: [],
@@ -395,8 +503,14 @@ export const useFileStore = create<FileState>((set, get) => ({
         ? (newMru.find((item) => newFiles.some((file) => normalizeDocumentPath(file.path) === normalizeDocumentPath(item))) ?? newFiles[0]?.path ?? null)
         : state.currentFile
 
+      if (wasCurrent) resetLogIndexForDocumentSwitch()
       set({ files: newFiles, currentFile: newCurrent, mru: newMru })
       useEditorStore.getState().removeDocument(path)
+      const credential = _documentCredentials.get(key)
+      if (credential) {
+        _documentCredentials.delete(key)
+        void window.electronAPI.document.release(credential)
+      }
       if (wasCurrent && newCurrent) get().setCurrentFile(newCurrent)
     }
 
@@ -409,17 +523,19 @@ export const useFileStore = create<FileState>((set, get) => ({
     })
   },
 
-  setCurrentFile: (path, preserveMru = false) => {
+  setCurrentFile: async (path, preserveMru = false, skipConfirmation = false) => {
+    if (_navigationPromptPending && !skipConfirmation) return false
     const current = get().currentFile
     if (path && current && normalizeDocumentPath(path) === normalizeDocumentPath(current)) {
       if (!useEditorStore.getState().activateDocument(path)) {
         useEditorStore.getState().beginDocumentLoad(path)
-        void get().loadFileContent(path, true)
+        return get().loadFileContent(path, true)
       }
-      return Promise.resolve(true)
+      return true
     }
 
-    const activate = (): boolean => {
+    const activate = async (): Promise<boolean> => {
+      resetLogIndexForDocumentSwitch()
       if (!path) {
         set((state) => ({ currentFile: null, files: state.files.map((file) => ({ ...file, active: false })) }))
         return true
@@ -433,7 +549,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       }))
       if (!useEditorStore.getState().activateDocument(path)) {
         useEditorStore.getState().beginDocumentLoad(path)
-        void get().loadFileContent(path, true)
+        return get().loadFileContent(path, true)
       }
       return true
     }
@@ -442,15 +558,20 @@ export const useFileStore = create<FileState>((set, get) => ({
     const activeFile = activeSession
       ? useEditorStore.getState().documentSessions[activeSession]?.filePath
       : current
-    if (!activeFile || !hasDirtyDocument(activeFile)) {
-      return Promise.resolve(activate())
+    if (skipConfirmation || !activeFile || !hasDirtyDocument(activeFile)) {
+      return activate()
     }
 
+    if (_navigationPromptPending) return false
+    setNavigationPromptPending(true)
     const requestVersion = ++_navigationRequestVersion
-    return confirmUnsavedDocument(activeFile).then((confirmed) => {
+    try {
+      const confirmed = await confirmUnsavedDocument(activeFile)
       if (!confirmed || requestVersion !== _navigationRequestVersion) return false
       return activate()
-    })
+    } finally {
+      setNavigationPromptPending(false)
+    }
   },
 
   cycleMru: (direction) => {
@@ -466,6 +587,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   setLoading: (loading) => set({ isLoading: loading }),
 
   clearWorkspace: () => {
+    _workspaceSelectionVersion++
     void (async () => {
       get().cancelWorkspaceScan()
       get().cancelLogIndex()
@@ -476,6 +598,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       if (!shouldClearRuntimeState) {
         stopWorkspaceWatch()
         set({ workspaceRoot: null, workspaceFiles: [] })
+        reportWorkspaceChanged(null)
         return
       }
 
@@ -485,6 +608,7 @@ export const useFileStore = create<FileState>((set, get) => ({
 
       stopWorkspaceWatch()
       set({ workspaceRoot: null, workspaceFiles: [] })
+      reportWorkspaceChanged(null)
       for (const [, unsub] of _streamUnsubs) {
         try {
           unsub()
@@ -503,6 +627,8 @@ export const useFileStore = create<FileState>((set, get) => ({
       useSessionContextStore.getState().resetConversationContext()
 
       set({ files: [], currentFile: null, mru: [], isLoading: false })
+      for (const credential of _documentCredentials.values()) void window.electronAPI.document.release(credential)
+      _documentCredentials.clear()
       useEditorStore.setState({
         content: '',
         previewContent: null,
@@ -518,7 +644,9 @@ export const useFileStore = create<FileState>((set, get) => ({
     })()
   },
 
-  openFolder: async (requestedRoot?: string) => {
+  openFolder: async (requestedRoot?: string, initialize = false) => {
+    if (initialize && _workspaceSelectionVersion > 0) return
+    const selectionVersion = initialize ? _workspaceSelectionVersion : ++_workspaceSelectionVersion
     const { setLoading } = get()
     set({ workspaceScanStatus: 'idle', workspaceScanError: null })
     setLoading(true)
@@ -535,10 +663,12 @@ export const useFileStore = create<FileState>((set, get) => ({
         root: string
         files: WorkspaceFileEntry[]
       }
+      if (selectionVersion !== _workspaceSelectionVersion) return
       set({
         workspaceRoot,
         workspaceFiles: files ?? [],
       })
+      reportWorkspaceChanged(workspaceRoot)
       await beginWorkspaceWatch(workspaceRoot, get)
       await get().startWorkspaceScan(workspaceRoot)
       void window.electronAPI.recent.record(workspaceRoot, 'folder')
@@ -552,79 +682,15 @@ export const useFileStore = create<FileState>((set, get) => ({
   },
 
   openWorkspaceFile: async (filePath: string) => {
-    const { files, addFile, setCurrentFile } = get()
-    if (files.some((f) => normalizeDocumentPath(f.path) === normalizeDocumentPath(filePath))) {
-      setCurrentFile(filePath)
-      return
-    }
-    const infoResult: any = await window.electronAPI.file.getInfo(filePath)
-    if (infoResult?.success && infoResult.data) {
-      const info = infoResult.data
-      addFile({
-        path: info.path,
-        name: info.name,
-        size: info.size,
-        extension: info.extension,
-        lines: info.lines,
-        encoding: info.encoding,
-        active: false,
-      })
-    } else {
-      const name = filePath.split(/[/\\]/).pop() || filePath
-      addFile({
-        path: filePath,
-        name,
-        size: 0,
-        extension: '',
-        lines: 0,
-        encoding: '',
-        active: false,
-      })
-    }
-    setCurrentFile(filePath)
+    await get().openFile(filePath)
   },
 
   openLinkedMarkdown: async (targetPath: string, replacePath: string) => {
-    const infoResult: any = await window.electronAPI.file.getInfo(targetPath)
-    if (!infoResult?.success || !infoResult.data) {
-      window.alert('找不到链接的 Markdown 文件')
-      return
+    await get().openFile(targetPath)
+    if (get().currentFile && normalizeDocumentPath(get().currentFile!) === normalizeDocumentPath(targetPath) && normalizeDocumentPath(replacePath) !== normalizeDocumentPath(targetPath)) {
+      get().removeFile(replacePath)
     }
-
-    const info = infoResult.data as {
-      path: string
-      name: string
-      size: number
-      extension: string
-      lines: number
-      encoding: string
-    }
-
-    if (hasDirtyDocument(replacePath) && !(await confirmUnsavedDocument(replacePath))) return
-
-    const { files } = get()
-    const entry: FileEntry = {
-      path: info.path,
-      name: info.name,
-      size: info.size,
-      extension: info.extension,
-      lines: info.lines,
-      encoding: info.encoding,
-      active: false,
-    }
-    const nextFiles = [
-      ...files.filter((f) => {
-        const key = normalizeDocumentPath(f.path)
-        return key !== normalizeDocumentPath(info.path) && key !== normalizeDocumentPath(replacePath)
-      }),
-      entry,
-    ]
-
-    set({ files: nextFiles })
-    const switched = await get().setCurrentFile(info.path)
-    if (switched && normalizeDocumentPath(replacePath) !== normalizeDocumentPath(info.path)) {
-      useEditorStore.getState().removeDocument(replacePath)
-    }
+    return
   },
 
   /* ── IPC-driven actions ── */
@@ -634,8 +700,36 @@ export const useFileStore = create<FileState>((set, get) => ({
     await get().openFile(filePath)
   },
 
-  openFile: async (filePath?: string) => {
+  openFile: async (filePath?: string, suppliedCredential?: import('../../../shared/types').DocumentCredential) => {
+    const endOperation = beginDocumentOperation()
+    if (!endOperation) {
+      if (suppliedCredential) await window.electronAPI.document.release(suppliedCredential)
+      return
+    }
+    const requestVersion = ++_openFileSequence
     const { setLoading, addFile, setCurrentFile } = get()
+    let pathKey: string | null = null
+    let credential: import('../../../shared/types').DocumentCredential | null = suppliedCredential ?? null
+    let reservedPath = credential?.filePath ?? ''
+    let ownsPathInFlight = false
+    let settlePromise: Promise<void> | null = null
+    let settlePath: () => void = () => undefined
+    let stagedSession = false
+    let stagedFile = false
+    let committed = false
+    let accepted = false
+    let previousFile = get().currentFile
+    let previousMru = get().mru
+    const isLatestPublished = () => requestVersion === _openFileRequestVersion
+    const isLatestRequest = () =>
+      isLatestPublished()
+      && (!ownsPathInFlight || (pathKey !== null && _openFileInFlightByPath.get(pathKey) === requestVersion))
+    const releaseCredential = async (): Promise<void> => {
+      if (!credential) return
+      const current = credential
+      credential = null
+      await window.electronAPI.document.release(current)
+    }
     setLoading(true)
     try {
       let resolvedPath: string | null = null
@@ -658,17 +752,77 @@ export const useFileStore = create<FileState>((set, get) => ({
         return
       }
 
-      // Avoid duplicates
-      if (get().files.some((f) => normalizeDocumentPath(f.path) === normalizeDocumentPath(resolvedPath!))) {
-        setCurrentFile(resolvedPath) // auto-loads content internally
-        setLoading(false)
+      pathKey = normalizeDocumentPath(resolvedPath)
+      _openFileRequestVersion = Math.max(_openFileRequestVersion, requestVersion)
+      if (!isLatestPublished()) {
+        await releaseCredential()
         return
       }
 
-      // Get file metadata
-      const infoResult: any = await window.electronAPI.file.getInfo(resolvedPath)
-      if (infoResult?.success && infoResult.data) {
+      // Avoid duplicates: wait for an in-flight open of the same path to settle, then re-check.
+      if (get().files.some((f) => normalizeDocumentPath(f.path) === pathKey)) {
+        let reopening = false
+        try {
+          while (true) {
+            await waitForDuplicateOpenToSettle(pathKey, requestVersion)
+            if (!isLatestPublished()) return
+            if (!get().files.some((f) => normalizeDocumentPath(f.path) === pathKey)) {
+              reopening = true
+              break
+            }
+            const switched = await setCurrentFile(resolvedPath) // auto-loads content internally
+            if (switched) return
+            if (!isLatestPublished()) return
+            // Another unsaved confirmation started meanwhile; wait for it and re-evaluate.
+            if (!_navigationPromptPending) return
+          }
+        } finally {
+          if (!reopening) await releaseCredential()
+        }
+        // The previous open was cleaned up; continue with a fresh full open below.
+      }
+
+      ownsPathInFlight = true
+      _openFileInFlightByPath.set(pathKey, requestVersion)
+      settlePromise = new Promise<void>((resolve) => {
+        settlePath = resolve
+      })
+      _openFileSettledByPath.set(pathKey, settlePromise)
+      if (!isLatestRequest()) return
+
+      if (!credential) {
+        const reservation = await window.electronAPI.document.reserve({ filePath: resolvedPath, purpose: 'open' })
+        if (!reservation.success || !reservation.data) {
+          if (isLatestRequest()) window.alert(reservation.error ?? '无法打开文件')
+          return
+        }
+        if (reservation.data.status === 'focused') return
+        credential = { filePath: reservation.data.filePath, reservationId: reservation.data.reservationId }
+      }
+      reservedPath = credential.filePath
+
+      try {
+        if (!isLatestRequest()) return
+        // Get file metadata
+        const infoResult: any = await window.electronAPI.file.getInfo(reservedPath)
+        if (!infoResult?.success || !infoResult.data) throw new Error(infoResult?.error ?? '无法读取文件信息')
+        if (!isLatestRequest()) return
         const info = infoResult.data
+        const mode = inferMode(reservedPath)
+        if (info.size > EDITOR_LARGE_FILE_BYTES) {
+          const sample = mode === 'log' ? '' : await readFileLineSample(reservedPath, EDITOR_SAMPLE_LINES)
+          if (!isLatestRequest()) return
+          const content = mode === 'log' ? '' : formatLargeFileEditorBanner(info.size, info.lines) + sample
+          useEditorStore.getState().setSampledDocument(reservedPath, content, mode, false)
+          stagedSession = true
+        } else {
+          const read = await window.electronAPI.file.readText(reservedPath)
+          if (!read.success || !read.data) throw new Error(read.error ?? '无法读取文件')
+          if (!isLatestRequest()) return
+          useEditorStore.getState().setDocumentSnapshot(reservedPath, read.data, false)
+          stagedSession = true
+        }
+        if (!isLatestRequest()) return
         addFile({
           path: info.path,
           name: info.name,
@@ -678,30 +832,84 @@ export const useFileStore = create<FileState>((set, get) => ({
           encoding: info.encoding,
           active: false,
         })
+        stagedFile = true
         void window.electronAPI.recent.record(info.path, 'file')
-      } else {
-        // fallback: add with minimal info
-        const name = resolvedPath.split(/[/\\]/).pop() || resolvedPath
-        addFile({
-          path: resolvedPath,
-          name,
-          size: 0,
-          extension: '',
-          lines: 0,
-          encoding: '',
-          active: false,
-        })
-      }
 
-      setCurrentFile(resolvedPath) // auto-triggers loadFileContent
+        if (!isLatestRequest()) return
+        previousFile = get().currentFile
+        previousMru = get().mru
+        const activeSession = useEditorStore.getState().activeDocumentPath
+        const activeFile = activeSession ? useEditorStore.getState().documentSessions[activeSession]?.filePath : previousFile
+        const prepared = activeFile
+          ? await prepareNavigationSource(activeFile)
+          : { proceed: true, finalize: async () => undefined }
+        if (!isLatestRequest() || !prepared.proceed) return
+        if (get().currentFile !== previousFile) return
+        const commitResult = await window.electronAPI.document.commit(credential)
+        if (!isLatestRequest()) return
+        if (!commitResult.success) throw new Error(commitResult.error ?? '无法确认文件归属')
+        committed = true
+        if (!isLatestRequest()) return
+        if (!(await setCurrentFile(reservedPath, false, true))) throw new Error('文件加载已取消或失败')
+        accepted = true
+        _documentCredentials.set(normalizeDocumentPath(reservedPath), credential)
+        await prepared.finalize()
+        pruneInactiveDocumentCache(reservedPath)
+        if (
+          isLatestRequest()
+          && get().currentFile != null
+          && normalizeDocumentPath(get().currentFile!) === normalizeDocumentPath(reservedPath)
+          && info.size > EDITOR_LARGE_FILE_BYTES
+          && mode === 'log'
+        ) void get().startLogIndex(reservedPath)
+      } finally {
+        if (!accepted) {
+          const failedPath = reservedPath
+          const failedKey = normalizeDocumentPath(failedPath)
+          if (isLatestRequest()) {
+            set((state) => {
+              const restoring = state.currentFile != null && normalizeDocumentPath(state.currentFile) === failedKey
+              const currentFile = restoring ? previousFile : state.currentFile
+              return { files: state.files.filter((item) => normalizeDocumentPath(item.path) !== failedKey).map((item) => ({ ...item, active: currentFile != null && normalizeDocumentPath(item.path) === normalizeDocumentPath(currentFile) })), currentFile, mru: restoring ? previousMru : state.mru.filter((item) => normalizeDocumentPath(item) !== failedKey) }
+            })
+            useEditorStore.getState().removeDocument(failedPath)
+            if (previousFile && get().currentFile === previousFile) useEditorStore.getState().activateDocument(previousFile)
+          } else if (_openFileInFlightByPath.get(failedKey) === requestVersion) {
+            if (stagedFile) {
+              set((state) => ({
+                files: state.files.filter((item) => normalizeDocumentPath(item.path) !== failedKey),
+                mru: state.mru.filter((item) => normalizeDocumentPath(item) !== failedKey),
+              }))
+            }
+            if (stagedSession) useEditorStore.getState().removeDocument(failedPath)
+          }
+          if (credential) {
+            const credentialKey = normalizeDocumentPath(credential.filePath)
+            const newerSamePath = _openFileInFlightByPath.get(credentialKey) !== undefined
+              && _openFileInFlightByPath.get(credentialKey) !== requestVersion
+            if (!(committed && newerSamePath)) await window.electronAPI.document.release(credential)
+          }
+        }
+      }
     } catch (err) {
       console.error('openFile error:', err)
+      if (isLatestRequest()) window.alert(err instanceof Error ? err.message : '打开文件失败')
     } finally {
+      if (pathKey && ownsPathInFlight && _openFileInFlightByPath.get(pathKey) === requestVersion) {
+        _openFileInFlightByPath.delete(pathKey)
+      }
+      if (pathKey && settlePromise && _openFileSettledByPath.get(pathKey) === settlePromise) {
+        _openFileSettledByPath.delete(pathKey)
+      }
+      settlePath()
       setLoading(false)
+      endOperation()
     }
   },
 
   createFile: async () => {
+    const endOperation = beginDocumentOperation()
+    if (!endOperation) return
     const { setLoading, openFile } = get()
     setLoading(true)
     try {
@@ -713,7 +921,41 @@ export const useFileStore = create<FileState>((set, get) => ({
       }
 
       const createdPath = result.data as string
-      await openFile(createdPath)
+      const reservation = await window.electronAPI.document.reserve({ filePath: createdPath, purpose: 'create' })
+      if (!reservation.success || !reservation.data) {
+        window.alert(reservation.error ?? '无法新建文件')
+        return
+      }
+      if (reservation.data.status === 'focused') return
+      if (reservation.data.status === 'owned') {
+        await get().setCurrentFile(reservation.data.filePath)
+        return
+      }
+      const credential = { filePath: reservation.data.filePath, reservationId: reservation.data.reservationId }
+      let transferred = false
+      try {
+        const existing = await window.electronAPI.file.readText(credential.filePath)
+        if (existing.success && existing.data) {
+          if (!window.confirm('文件已存在，是否替换？')) return
+          const saved = await window.electronAPI.file.saveText({
+            filePath: credential.filePath,
+            content: '',
+            encoding: existing.data.encoding,
+            lineEnding: existing.data.lineEnding,
+            expectedVersion: existing.data.version,
+          })
+          if (!saved.success) throw new Error(saved.error ?? '无法替换文件')
+        } else if (existing.code === 'NOT_FOUND') {
+          const created: any = await window.electronAPI.file.create(credential)
+          if (!created?.success) throw new Error(created?.error ?? '无法创建文件')
+        } else {
+          throw new Error(existing.error ?? '无法读取目标文件')
+        }
+        transferred = true
+        await openFile(credential.filePath, credential)
+      } finally {
+        if (!transferred) await window.electronAPI.document.release(credential)
+      }
 
       // 若新建文件位于当前工作区内，立即刷新工作区文件树。
       const { workspaceRoot, refreshWorkspaceFiles } = get()
@@ -726,13 +968,15 @@ export const useFileStore = create<FileState>((set, get) => ({
       }
     } catch (err) {
       console.error('createFile error:', err)
+      window.alert(err instanceof Error ? err.message : '新建文件失败')
     } finally {
       setLoading(false)
+      endOperation()
     }
   },
 
   loadFileContent: async (filePath: string, force = false) => {
-    if (!force && useEditorStore.getState().activateDocument(filePath)) return
+    if (!force && useEditorStore.getState().activateDocument(filePath)) return true
 
     get().cancelLogIndex()
 
@@ -749,7 +993,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     }
 
     // Dedup: skip if this path is already being loaded
-    if (_loadingPaths.has(filePath)) return
+    if (_loadingPaths.has(filePath)) return false
     _loadingPaths.add(filePath)
 
     const { setLoading } = get()
@@ -798,7 +1042,7 @@ export const useFileStore = create<FileState>((set, get) => ({
           discardPendingDocumentLoad(filePath)
         }
         cleanup()
-        return
+        return Boolean(get().currentFile && normalizeDocumentPath(get().currentFile!) === normalizeDocumentPath(filePath))
       }
 
       if (fileSize > EDITOR_LARGE_FILE_BYTES) {
@@ -811,7 +1055,7 @@ export const useFileStore = create<FileState>((set, get) => ({
           discardPendingDocumentLoad(filePath)
         }
         cleanup()
-        return
+        return Boolean(get().currentFile && normalizeDocumentPath(get().currentFile!) === normalizeDocumentPath(filePath))
       }
 
       // ── Full read path for files ≤2MB ──
@@ -828,10 +1072,12 @@ export const useFileStore = create<FileState>((set, get) => ({
         discardPendingDocumentLoad(filePath)
       }
       cleanup()
+      return Boolean(result?.success && result.data && get().currentFile && normalizeDocumentPath(get().currentFile!) === normalizeDocumentPath(filePath))
     } catch (err) {
       console.error('loadFileContent error:', err)
       discardPendingDocumentLoad(filePath)
       cleanup()
+      return false
     }
   },
 }))

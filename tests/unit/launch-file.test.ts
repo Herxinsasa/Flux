@@ -19,7 +19,18 @@ describe('extractOpenFilePath', () => {
     expect(extractOpenFilePath(['electron.exe', filePath])).toBe(filePath)
   })
 
-  it('rejects missing, relative, and unsupported paths', () => {
-    expect(extractOpenFilePath(['notes.md', path.join(os.tmpdir(), 'missing.txt')])).toBeNull()
+  it('resolves relative and missing paths so they can produce a useful error', () => {
+    expect(extractOpenFilePath(['notes.md'], os.tmpdir())).toBe(path.join(os.tmpdir(), 'notes.md'))
+    const missing = path.join(os.tmpdir(), 'missing.txt')
+    expect(extractOpenFilePath([missing])).toBe(missing)
+  })
+
+  it('ignores Electron flags and unsupported paths', () => {
+    expect(
+      extractOpenFilePath(['--log-file', 'electron.log', '--trace-warnings', 'electron.exe']),
+    ).toBeNull()
+    expect(extractOpenFilePath(['--user-data-dir=C:\\tmp.log', 'file.md'], os.tmpdir())).toBe(
+      path.join(os.tmpdir(), 'file.md'),
+    )
   })
 })

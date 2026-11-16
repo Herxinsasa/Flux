@@ -5,6 +5,8 @@ const mockRead = vi.fn()
 const mockReadText = vi.fn()
 const mockGetInfo = vi.fn()
 const mockOpen = vi.fn()
+const mockCreate = vi.fn()
+const mockSaveText = vi.fn()
 const mockReadStream = vi.fn()
 const mockOpenFolder = vi.fn()
 const mockScanWorkspace = vi.fn()
@@ -18,14 +20,23 @@ const mockListSessions = vi.fn()
 const mockReadWorkspaceSession = vi.fn()
 const mockDiscardSource = vi.fn()
 const mockConfirm = vi.fn()
+const mockAlert = vi.fn()
+const mockReserve = vi.fn()
+const mockCommit = vi.fn()
+const mockRelease = vi.fn()
+const mockWorkspaceChanged = vi.fn()
 
 vi.stubGlobal('window', {
   electronAPI: {
+    document: { reserve: mockReserve, commit: mockCommit, release: mockRelease },
+    window: { workspaceChanged: mockWorkspaceChanged },
     file: {
       read: mockRead,
       readText: mockReadText,
       getInfo: mockGetInfo,
       open: mockOpen,
+      create: mockCreate,
+      saveText: mockSaveText,
       openFolder: mockOpenFolder,
       readStream: mockReadStream,
       scanWorkspace: mockScanWorkspace,
@@ -43,6 +54,7 @@ vi.stubGlobal('window', {
     backup: { discardSource: mockDiscardSource },
   },
   confirm: mockConfirm,
+  alert: mockAlert,
 })
 
 import type { FileEntry } from '../../src/renderer/src/stores/fileStore'
@@ -90,6 +102,10 @@ describe('useFileStore', () => {
       documentSessions: {},
     })
     vi.clearAllMocks()
+    mockReserve.mockImplementation(async ({ filePath }) => ({ success: true, data: { status: 'reserved', filePath, reservationId: `test-${filePath}` } }))
+    mockCommit.mockResolvedValue({ success: true, data: { accepted: true } })
+    mockRelease.mockResolvedValue({ success: true, data: { accepted: true } })
+    mockWorkspaceChanged.mockResolvedValue({ success: true, data: { accepted: true } })
     window.confirm = mockConfirm
     mockReadText.mockResolvedValue({
       success: true,
@@ -462,6 +478,116 @@ describe('useFileStore', () => {
   })
 
   describe('openFileFromLaunch', () => {
+    it('keeps an externally changed create target when version checking fails', async () => {
+      mockCreate.mockResolvedValueOnce({ success: true, data: '/existing.md' })
+      mockSaveText.mockResolvedValueOnce({ success: false, code: 'VERSION_CONFLICT', error: 'changed outside' })
+      await useFileStore.getState().createFile()
+      expect(mockSaveText).toHaveBeenCalledWith(expect.objectContaining({ filePath: '/existing.md', content: '' }))
+      expect(mockRelease).toHaveBeenCalledWith({ filePath: '/existing.md', reservationId: 'test-/existing.md' })
+      expect(mockCreate).toHaveBeenCalledTimes(1)
+      expect(mockAlert).toHaveBeenCalledWith('changed outside')
+    })
+    it('does not load a file already owned by another window', async () => {
+      mockReserve.mockResolvedValueOnce({ success: true, data: { status: 'focused', filePath: '/owned.md' } })
+      await useFileStore.getState().openFile('/owned.md')
+      expect(mockGetInfo).not.toHaveBeenCalled()
+      expect(mockReadText).not.toHaveBeenCalled()
+      expect(useFileStore.getState().files).toHaveLength(0)
+    })
+
+    it('releases the reservation and preserves the active document when loading fails', async () => {
+      useFileStore.setState({ files: [makeFile({ path: '/existing.md', active: true })], currentFile: '/existing.md', mru: ['/existing.md'] })
+      useEditorStore.getState().setDocumentSnapshot('/existing.md', { filePath: '/existing.md', content: 'original', encoding: 'utf8', lineEnding: 'lf', version: { mtimeMs: 1, size: 8, contentHash: 'old' }, sampled: false })
+      useEditorStore.getState().setContent('unsaved draft')
+      const prompt = vi.fn(async () => 'discard' as const)
+      const unregister = registerUnsavedPrompt(prompt)
+      mockGetInfo.mockResolvedValueOnce({ success: true, data: makeFile({ path: '/missing.md' }) })
+      mockReadText.mockResolvedValueOnce({ success: false, error: 'read failed' })
+      await useFileStore.getState().openFile('/missing.md')
+      expect(mockRelease).toHaveBeenCalledWith({ filePath: '/missing.md', reservationId: 'test-/missing.md' })
+      expect(useFileStore.getState().currentFile).toBe('/existing.md')
+      expect(useFileStore.getState().mru).toEqual(['/existing.md'])
+      expect(useFileStore.getState().files.map((file) => file.path)).toEqual(['/existing.md'])
+      expect(useEditorStore.getState().content).toBe('unsaved draft')
+      expect(hasDirtyDocument('/existing.md')).toBe(true)
+      expect(prompt).not.toHaveBeenCalled()
+      unregister()
+    })
+
+    it('releases a staged target when the user cancels switching away from a dirty source', async () => {
+      useFileStore.setState({ files: [makeFile({ path: '/existing.md', active: true })], currentFile: '/existing.md' })
+      useEditorStore.getState().setDocumentSnapshot('/existing.md', { filePath: '/existing.md', content: 'original', encoding: 'utf8', lineEnding: 'lf', version: { mtimeMs: 1, size: 8, contentHash: 'old' }, sampled: false })
+      useEditorStore.getState().setContent('unsaved draft')
+      const unregister = registerUnsavedPrompt(async () => 'cancel')
+      mockGetInfo.mockResolvedValueOnce({ success: true, data: makeFile({ path: '/target.md' }) })
+      await useFileStore.getState().openFile('/target.md')
+      expect(mockCommit).not.toHaveBeenCalled()
+      expect(mockRelease).toHaveBeenCalledWith({ filePath: '/target.md', reservationId: 'test-/target.md' })
+      expect(useEditorStore.getState().content).toBe('unsaved draft')
+      expect(useFileStore.getState().files.map((file) => file.path)).toEqual(['/existing.md'])
+      unregister()
+    })
+
+    it('keeps a staged target reserved while the source confirmation is pending', async () => {
+      useFileStore.setState({ files: [makeFile({ path: '/existing.md', active: true })], currentFile: '/existing.md' })
+      useEditorStore.getState().setDocumentSnapshot('/existing.md', { filePath: '/existing.md', content: 'source', encoding: 'utf8', lineEnding: 'lf', version: { mtimeMs: 1, size: 6, contentHash: 'old' }, sampled: false })
+      useEditorStore.getState().setContent('unsaved')
+      let decide: ((decision: 'cancel') => void) | undefined
+      const unregister = registerUnsavedPrompt(() => new Promise((resolve) => { decide = resolve }))
+      mockGetInfo.mockResolvedValueOnce({ success: true, data: makeFile({ path: '/target.md' }) })
+      const opening = useFileStore.getState().openFile('/target.md')
+      await vi.waitFor(() => expect(decide).toBeDefined())
+      expect(mockCommit).not.toHaveBeenCalled()
+      expect(mockRelease).not.toHaveBeenCalled()
+      decide?.('cancel')
+      await opening
+      expect(mockRelease).toHaveBeenCalledOnce()
+      expect(useEditorStore.getState().content).toBe('unsaved')
+      unregister()
+    })
+
+    it('keeps the source draft when target commit fails after discard was chosen', async () => {
+      useFileStore.setState({ files: [makeFile({ path: '/existing.md', active: true })], currentFile: '/existing.md' })
+      useEditorStore.getState().setDocumentSnapshot('/existing.md', { filePath: '/existing.md', content: 'source', encoding: 'utf8', lineEnding: 'lf', version: { mtimeMs: 1, size: 6, contentHash: 'old' }, sampled: false })
+      useEditorStore.getState().setContent('unsaved')
+      const unregister = registerUnsavedPrompt(async () => 'discard')
+      mockGetInfo.mockResolvedValueOnce({ success: true, data: makeFile({ path: '/target.md' }) })
+      mockCommit.mockResolvedValueOnce({ success: false, error: 'commit failed' })
+      await useFileStore.getState().openFile('/target.md')
+      expect(useEditorStore.getState().content).toBe('unsaved')
+      expect(hasDirtyDocument('/existing.md')).toBe(true)
+      expect(mockRelease).toHaveBeenCalledOnce()
+      unregister()
+    })
+    it('releases a supplied credential when the file already belongs to the open set', async () => {
+      useFileStore.setState({
+        files: [makeFile({ path: '/already.md', active: true })],
+        currentFile: '/already.md',
+        mru: ['/already.md'],
+      })
+      useEditorStore.getState().setDocumentSnapshot('/already.md', {
+        filePath: '/already.md',
+        content: '# Already open',
+        encoding: 'utf8',
+        lineEnding: 'lf',
+        version: { mtimeMs: 1, size: 14, contentHash: 'already' },
+        sampled: false,
+      })
+
+      await useFileStore
+        .getState()
+        .openFile('/already.md', { filePath: '/already.md', reservationId: 'supplied-credential' })
+
+      expect(mockReserve).not.toHaveBeenCalled()
+      expect(mockCommit).not.toHaveBeenCalled()
+      expect(mockRelease).toHaveBeenCalledWith({
+        filePath: '/already.md',
+        reservationId: 'supplied-credential',
+      })
+      expect(mockAlert).not.toHaveBeenCalled()
+      expect(useFileStore.getState().currentFile).toBe('/already.md')
+    })
+
     it('keeps the current workspace when opening an external file', async () => {
       let finishRead: ((value: unknown) => void) | undefined
       mockReadText.mockImplementation(() => new Promise((resolve) => { finishRead = resolve }))
@@ -478,7 +604,7 @@ describe('useFileStore', () => {
         },
       })
 
-      await useFileStore.getState().openFileFromLaunch('C:\\outside\\note.md')
+      const opening = useFileStore.getState().openFileFromLaunch('C:\\outside\\note.md')
 
       await vi.waitFor(() => expect(mockReadText).toHaveBeenCalledWith('C:\\outside\\note.md'))
       expect(useEditorStore.getState().content).toBe('')
@@ -493,6 +619,7 @@ describe('useFileStore', () => {
           sampled: false,
         },
       })
+      await opening
       await vi.waitFor(() => expect(useEditorStore.getState().content).toBe('# External note'))
 
       expect(mockOpenFolder).not.toHaveBeenCalled()

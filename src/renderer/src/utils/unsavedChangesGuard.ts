@@ -35,6 +35,27 @@ export async function confirmUnsavedDocument(filePath: string): Promise<boolean>
   return true
 }
 
+export async function prepareUnsavedDocument(
+  filePath: string,
+): Promise<{ proceed: boolean; finalize: () => Promise<void> }> {
+  const key = normalizeDocumentPath(filePath)
+  const noChange = async () => undefined
+  if (useEditorStore.getState().documentSessions[key]?.dirty !== true)
+    return { proceed: true, finalize: noChange }
+  const decision = await requestDecision(filePath)
+  if (decision === 'cancel') return { proceed: false, finalize: noChange }
+  if (decision === 'save') return { proceed: await saveDocument(filePath), finalize: noChange }
+  if (decision === 'saved') return { proceed: true, finalize: noChange }
+  return {
+    proceed: true,
+    finalize: async () => {
+      useEditorStore.getState().discardDocumentChanges(filePath)
+      useEditorStore.getState().removeDocument(filePath)
+      await discardDocumentBackup(filePath)
+    },
+  }
+}
+
 export function listDirtyDocumentPaths(): string[] {
   return Object.values(useEditorStore.getState().documentSessions)
     .filter((session) => session.dirty)

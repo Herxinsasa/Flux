@@ -64,6 +64,31 @@ describe('useEditorStore', () => {
     })
   })
 
+  it('stages a document without replacing the active draft', () => {
+    const snapshot = {
+      filePath: '/source.md',
+      content: 'source',
+      encoding: 'utf8' as const,
+      lineEnding: 'lf' as const,
+      version: { mtimeMs: 1, size: 6, contentHash: 'source' },
+      sampled: false,
+    }
+    useEditorStore.getState().setDocumentSnapshot('/source.md', snapshot)
+    useEditorStore.getState().setContent('unsaved')
+    useEditorStore
+      .getState()
+      .setDocumentSnapshot(
+        '/target.md',
+        { ...snapshot, filePath: '/target.md', content: 'target' },
+        false,
+      )
+    expect(useEditorStore.getState().content).toBe('unsaved')
+    expect(useEditorStore.getState().activeDocumentPath).toBe('/source.md')
+    expect(useEditorStore.getState().documentSessions['/target.md'].draft).toBe('target')
+    expect(useEditorStore.getState().activateDocument('/target.md')).toBe(true)
+    expect(useEditorStore.getState().content).toBe('target')
+  })
+
   describe('setMode', () => {
     it('accepts an EditorMode directly ("text")', () => {
       useEditorStore.getState().setMode('text')

@@ -11,9 +11,10 @@ import { registerRecentHandlers } from './recent-handlers'
 import { registerReviewHandlers } from './review-handlers'
 import { registerAiActionHandlers } from './ai-action-handlers'
 import { registerAttachmentBackupHandlers } from './attachment-backup-handlers'
+import type { WindowCoordinator } from '../window-coordinator'
 
-export function registerAllHandlers(): void {
-  registerFileHandlers()
+export function registerAllHandlers(coordinator: WindowCoordinator): void {
+  registerFileHandlers(coordinator)
   registerAttachmentBackupHandlers()
   registerRecentHandlers()
   registerReviewHandlers()

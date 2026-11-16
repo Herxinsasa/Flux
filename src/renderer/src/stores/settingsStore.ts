@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { AppearanceSnapshot, AppearanceUpdate } from '../../../shared/types'
 
 type Theme = 'dark' | 'light'
 
@@ -32,9 +33,9 @@ export interface Provider {
 export const DEFAULT_READING_PREFERENCES: ReadingPreferences = {
   uiFontFamily: 'Microsoft YaHei',
   editorFontFamily: 'Microsoft YaHei',
-  monoFontFamily: 'Consolas',
+  monoFontFamily: 'Cascadia Mono',
   bodyFontSize: 16,
-  codeFontSize: 13,
+  codeFontSize: 14,
 }
 
 export const READING_BODY_FONT_SIZE_MIN = 8
@@ -105,6 +106,8 @@ interface SettingsState {
   activeProvider: string | null
   isConfigured: boolean
   readingPreferences: ReadingPreferences
+  appearanceRevision: number
+  applyAppearance: (snapshot: AppearanceSnapshot) => void
   providerModelOptions: Record<string, string[]>
   sessionPersistenceEnabled: boolean
   sessionRetentionDays: number
@@ -119,24 +122,53 @@ interface SettingsState {
   setSessionPersistence: (value: Partial<Pick<SettingsState, 'sessionPersistenceEnabled' | 'sessionRetentionDays' | 'sessionMaxStorageMb'>>) => void
 }
 
+let confirmedAppearance: AppearanceSnapshot | null = null
+
+function persistAppearance(update: AppearanceUpdate): void {
+  if (typeof window === 'undefined' || !window.electronAPI?.appearance) return
+  const current = useSettingsStore.getState()
+  const fallback = { theme: current.theme, readingPreferences: current.readingPreferences }
+  void window.electronAPI.appearance.update(update).then((response) => {
+    if (!response.success) throw new Error(response.error ?? '无法保存外观设置')
+  }).catch((error) => {
+    const restored = confirmedAppearance ?? fallback
+    applyReadingPreferences(restored.readingPreferences)
+    useSettingsStore.setState({ theme: restored.theme, readingPreferences: restored.readingPreferences })
+    window.alert(error instanceof Error ? error.message : '无法保存外观设置')
+  })
+}
+
 export const useSettingsStore = create<SettingsState>((set) => ({
   theme: getInitialTheme(),
   providers: [],
   activeProvider: null,
   isConfigured: false,
   readingPreferences: DEFAULT_READING_PREFERENCES,
+  appearanceRevision: -1,
+  applyAppearance: (snapshot) => set((state) => {
+    if (snapshot.revision <= state.appearanceRevision) return state
+    const readingPreferences = normalizeReadingPreferences(snapshot.readingPreferences)
+    confirmedAppearance = { ...snapshot, readingPreferences }
+    applyReadingPreferences(readingPreferences)
+    return { theme: snapshot.theme, readingPreferences, appearanceRevision: snapshot.revision }
+  }),
   providerModelOptions: {},
   sessionPersistenceEnabled: false,
   sessionRetentionDays: 30,
   sessionMaxStorageMb: 200,
   setTheme: (theme) => set({ theme }),
-  toggleTheme: () => set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
+  toggleTheme: () => set((state) => {
+    const theme = state.theme === 'dark' ? 'light' : 'dark'
+    persistAppearance({ theme })
+    return { theme }
+  }),
   setProviders: (providers) => set({ providers }),
   setActiveProvider: (id) => set({ activeProvider: id }),
   setConfigured: (configured) => set({ isConfigured: configured }),
   setReadingPreferences: (preferences) => set((state) => {
     const next = normalizeReadingPreferences({ ...state.readingPreferences, ...preferences })
     applyReadingPreferences(next)
+    persistAppearance({ readingPreferences: preferences })
     return { readingPreferences: next }
   }),
   setProviderModelOptions: (providerModelOptions) => set({ providerModelOptions }),
@@ -145,17 +177,14 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
 if (typeof window !== 'undefined') {
   void window.electronAPI?.settings?.get?.().then((response) => {
-    if (response?.success && response.data?.readingPreferences) {
-      const loaded = response.data.readingPreferences as ReadingPreferences
-      useSettingsStore.getState().setReadingPreferences(migrateLegacyReadingPreferences(loaded))
+    if (response?.success && response.data) {
       useSettingsStore.getState().setSessionPersistence({
         sessionPersistenceEnabled: response.data.sessionPersistenceEnabled === true,
         sessionRetentionDays: Number(response.data.sessionRetentionDays) || 30,
         sessionMaxStorageMb: Number(response.data.sessionMaxStorageMb) || 200,
       })
       useSettingsStore.getState().setProviderModelOptions((response.data.providerModelOptions ?? {}) as Record<string, string[]>)
-    } else {
-      applyReadingPreferences(DEFAULT_READING_PREFERENCES)
     }
-  }).catch(() => applyReadingPreferences(DEFAULT_READING_PREFERENCES))
+  }).catch(() => undefined)
+  applyReadingPreferences(DEFAULT_READING_PREFERENCES)
 }

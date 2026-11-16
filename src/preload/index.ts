@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC_CHANNELS } from '../shared/ipc-channels'
 import { buildLocalMediaUrl } from '../shared/local-media-url'
-import type { SaveTextRequest } from '../shared/types'
+import type { AppearanceSnapshot, AppearanceUpdate, CloseRequest, CloseResult, DocumentCredential, DocumentReservationRequest, SaveTextRequest, WindowCreateRequest, WindowInitialization } from '../shared/types'
 import type { ReviewExportRequest, ReviewLoadRequest, ReviewSaveRequest } from '../shared/review'
 
 const electronAPI = {
@@ -18,6 +18,51 @@ const electronAPI = {
       return () => ipcRenderer.removeListener(IPC_CHANNELS.APP_CLOSE_REQUEST, listener)
     },
     approveClose: () => ipcRenderer.send(IPC_CHANNELS.APP_CLOSE_APPROVED),
+    closeResult: (result: CloseResult) => ipcRenderer.send(IPC_CHANNELS.APP_CLOSE_RESULT, result),
+    onCoordinatedClose: (callback: (request: CloseRequest) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: CloseRequest) => callback(request)
+      ipcRenderer.on(IPC_CHANNELS.APP_CLOSE_REQUEST, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.APP_CLOSE_REQUEST, listener)
+    },
+    onCloseCancelled: (callback: (request: { requestId: string }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: { requestId: string }) => callback(request)
+      ipcRenderer.on(IPC_CHANNELS.APP_CLOSE_CANCELLED, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.APP_CLOSE_CANCELLED, listener)
+    },
+  },
+  window: {
+    create: (request: WindowCreateRequest) => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_CREATE, request),
+    ready: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_READY),
+    workspaceChanged: (workspaceRoot: string | null, revision: number) => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_WORKSPACE_CHANGED, { workspaceRoot, revision }),
+    workspaceSnapshot: (requestId: string, workspaceRoot: string | null, revision: number) => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_WORKSPACE_SNAPSHOT, { requestId, workspaceRoot, revision }),
+    onWorkspaceQuery: (callback: (payload: { requestId: string }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { requestId: string }) => callback(payload)
+      ipcRenderer.on(IPC_CHANNELS.WINDOW_WORKSPACE_QUERY, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.WINDOW_WORKSPACE_QUERY, listener)
+    },
+    onInitialize: (callback: (payload: WindowInitialization) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: WindowInitialization) => callback(payload)
+      ipcRenderer.on(IPC_CHANNELS.WINDOW_INITIALIZE, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.WINDOW_INITIALIZE, listener)
+    },
+  },
+  document: {
+    reserve: (request: DocumentReservationRequest) => ipcRenderer.invoke(IPC_CHANNELS.DOCUMENT_RESERVE, request),
+    commit: (request: DocumentCredential) => ipcRenderer.invoke(IPC_CHANNELS.DOCUMENT_COMMIT, request),
+    release: (request: DocumentCredential) => ipcRenderer.invoke(IPC_CHANNELS.DOCUMENT_RELEASE, request),
+    onOpenReserved: (callback: (payload: DocumentCredential) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: DocumentCredential) => callback(payload)
+      ipcRenderer.on(IPC_CHANNELS.DOCUMENT_OPEN_RESERVED, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.DOCUMENT_OPEN_RESERVED, listener)
+    },
+  },
+  appearance: {
+    update: (update: AppearanceUpdate) => ipcRenderer.invoke(IPC_CHANNELS.APPEARANCE_UPDATE, update),
+    onChanged: (callback: (snapshot: AppearanceSnapshot) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, snapshot: AppearanceSnapshot) => callback(snapshot)
+      ipcRenderer.on(IPC_CHANNELS.APPEARANCE_CHANGED, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.APPEARANCE_CHANGED, listener)
+    },
   },
   recent: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.RECENT_LIST),
@@ -45,7 +90,7 @@ const electronAPI = {
   },
   file: {
     open: () => ipcRenderer.invoke(IPC_CHANNELS.FILE_OPEN),
-    create: () => ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE),
+    create: (credential?: DocumentCredential) => ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE, credential),
     openFolder: (root?: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_OPEN_FOLDER, root),
     listWorkspaceFiles: (root: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_WORKSPACE_FILES, root),
     scanWorkspace: (root: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_SCAN_WORKSPACE, root),

@@ -11,6 +11,7 @@ import { normalizeReadingPreferences, type ReadingPreferences } from '../store/s
 import log from '../logger'
 import { syncNativeChromeTheme } from '../native-theme'
 import { loadCatalog, isModelValid } from '../services/catalog-service'
+import { appearance } from '../appearance'
 
 interface ProviderConfig {
   id: string
@@ -384,9 +385,6 @@ export function registerSettingsHandlers(): void {
   // --- SAVE: Persist settings（明文 JSON；仅保留一个供应商） ---
   ipcMain.handle(SETTINGS_SAVE, async (_event, payload: SettingsPayload) => {
     try {
-      if (payload.theme !== undefined) {
-        store.set('theme', payload.theme)
-      }
       if (payload.providers !== undefined) {
         const incoming = payload.providers.slice(0, 1)
         // apiKey 若为含 *** 的占位串，合并为仓库中的明文（见 resolveApiKeyForPersist）
@@ -440,9 +438,6 @@ export function registerSettingsHandlers(): void {
       if (typeof payload.onboardingCompleted === 'boolean') {
         store.set('onboardingCompleted', payload.onboardingCompleted)
       }
-      if (payload.readingPreferences !== undefined) {
-        store.set('readingPreferences', normalizeReadingPreferences(payload.readingPreferences))
-      }
       if (payload.providerModelOptions !== undefined) {
         const previous = normalizeProviderModelOptions(store.get('providerModelOptions'))
         store.set('providerModelOptions', {
@@ -459,6 +454,9 @@ export function registerSettingsHandlers(): void {
       const hasConfigured = savedProviders.some((p) => p.apiKey && p.apiKey.length > 0)
       store.set('configured', hasConfigured)
 
+      if (payload.theme !== undefined || payload.readingPreferences !== undefined) {
+        appearance.update({ theme: payload.theme, readingPreferences: payload.readingPreferences })
+      }
       syncNativeChromeTheme()
 
       return { success: true }

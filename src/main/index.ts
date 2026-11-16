@@ -1,5 +1,5 @@
 import { existsSync } from 'fs'
-import { app, BrowserWindow, Menu, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, Menu, shell } from 'electron'
 import { join } from 'path'
 import { registerAllHandlers } from './ipc/index'
 import log from './logger'
@@ -8,23 +8,35 @@ import { registerLocalFileProtocol } from './local-file-protocol'
 import { syncNativeChromeTheme } from './native-theme'
 import store from './store/index'
 import { SkillManager } from './skill/skill-manager'
-import { IPC_CHANNELS } from '../shared/ipc-channels'
 import { extractOpenFilePath } from '../shared/launch-file'
+import { WindowCoordinator } from './window-coordinator'
+import { CloseCoordinator } from './close-coordinator'
 
-const pendingOpenFiles: string[] = []
+const pendingOpenFiles: Array<string | null> = []
+let isReady = false
+let isFlushing = false
+const windowCoordinator = new WindowCoordinator(createWindow)
+const closeCoordinator = new CloseCoordinator((value) => windowCoordinator.setShuttingDown(value))
 
 function flushPendingOpenFiles(): void {
-  const [mainWindow] = BrowserWindow.getAllWindows()
-  if (!mainWindow || mainWindow.webContents.isLoading()) return
-  while (pendingOpenFiles.length > 0) {
-    mainWindow.webContents.send(IPC_CHANNELS.APP_OPEN_FILE, pendingOpenFiles.shift())
-  }
+  if (!isReady || isFlushing) return
+  isFlushing = true
+  void (async () => {
+    try {
+      while (pendingOpenFiles.length > 0) {
+        const filePath = pendingOpenFiles.shift()
+        await windowCoordinator.createFromLatest(filePath ?? undefined)
+      }
+    } finally {
+      isFlushing = false
+      if (pendingOpenFiles.length > 0) flushPendingOpenFiles()
+    }
+  })()
 }
 
-function enqueueOpenFile(commandLine: string[]): void {
-  const filePath = extractOpenFilePath(commandLine)
-  if (!filePath || pendingOpenFiles.includes(filePath)) return
-  pendingOpenFiles.push(filePath)
+function enqueueOpenFile(commandLine: string[], workingDirectory = process.cwd()): void {
+  const filePath = extractOpenFilePath(commandLine.slice(1), workingDirectory)
+  pendingOpenFiles.push(filePath ?? null)
   flushPendingOpenFiles()
 }
 
@@ -60,11 +72,12 @@ setupErrorHandlers()
 registerLocalFileProtocol()
 enqueueOpenFile(process.argv)
 
-function createWindow(): void {
+function createWindow(workspaceRoot: string | null): BrowserWindow {
   const theme = store.get('theme') === 'light' ? 'light' : 'dark'
   const backgroundColor = theme === 'light' ? '#f2f2f7' : '#1c1c1e'
 
   const mainWindow = new BrowserWindow({
+    show: false,
     width: 1440,
     height: 900,
     backgroundColor,
@@ -75,12 +88,8 @@ function createWindow(): void {
       contextIsolation: true,
     },
   })
-  let closeApproved = false
-  const approveClose = () => {
-    closeApproved = true
-    mainWindow.close()
-  }
-  ipcMain.on(IPC_CHANNELS.APP_CLOSE_APPROVED, approveClose)
+  windowCoordinator.register(mainWindow, workspaceRoot)
+  closeCoordinator.register(mainWindow)
 
   log.info('Main window created')
 
@@ -101,22 +110,19 @@ function createWindow(): void {
     void shell.openExternal(url)
   })
 
-  mainWindow.on('close', (event) => {
-    if (closeApproved || mainWindow.webContents.isDestroyed()) return
-    event.preventDefault()
-    mainWindow.webContents.send(IPC_CHANNELS.APP_CLOSE_REQUEST)
-  })
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, _url, isMainFrame) => {
+      if (!isMainFrame || mainWindow.isDestroyed()) return
+      log.error(`window load failed, code=${errorCode}, reason=${errorDescription}`)
+      mainWindow.destroy()
+    },
+  )
 
   mainWindow.on('closed', () => {
-    ipcMain.removeListener(IPC_CHANNELS.APP_CLOSE_APPROVED, approveClose)
     log.info('Main window closed')
   })
 
-  // 首次启动：did-finish-load 时 React 渲染进程可能尚未 mount 并注册 onOpenFile 监听，
-  // 立即 flush 会丢失打开文件事件。延迟 flush 给 React 足够时间完成 mount 与监听注册。
-  mainWindow.webContents.once('did-finish-load', () => {
-    setTimeout(flushPendingOpenFiles, 300)
-  })
   mainWindow.once('ready-to-show', () => {
     setImmediate(() => SkillManager.getInstance().init())
   })
@@ -124,12 +130,21 @@ function createWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) {
     const rendererUrl = new URL(process.env.ELECTRON_RENDERER_URL)
     rendererUrl.searchParams.set('theme', theme)
-    void mainWindow.loadURL(rendererUrl.toString())
-  } else {
-    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'), {
-      query: { theme },
+    void mainWindow.loadURL(rendererUrl.toString()).catch((error) => {
+      log.error(`window load failed, reason=${String(error)}`)
+      if (!mainWindow.isDestroyed()) mainWindow.destroy()
     })
+  } else {
+    void mainWindow
+      .loadFile(join(__dirname, '../renderer/index.html'), {
+        query: { theme },
+      })
+      .catch((error) => {
+        log.error(`window load failed, reason=${String(error)}`)
+        if (!mainWindow.isDestroyed()) mainWindow.destroy()
+      })
   }
+  return mainWindow
 }
 
 app.whenReady().then(() => {
@@ -143,24 +158,22 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(null)
   }
 
-  registerAllHandlers()
+  registerAllHandlers(windowCoordinator)
+  windowCoordinator.registerHandlers()
+  closeCoordinator.registerHandlers()
   syncNativeChromeTheme()
-  createWindow()
+  isReady = true
+  flushPendingOpenFiles()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      void windowCoordinator.create({ workspaceRoot: null })
     }
   })
 })
 
-app.on('second-instance', (_event, commandLine) => {
-  const [mainWindow] = BrowserWindow.getAllWindows()
-  if (mainWindow?.isMinimized()) {
-    mainWindow.restore()
-  }
-  mainWindow?.focus()
-  enqueueOpenFile(commandLine)
+app.on('second-instance', (_event, commandLine, workingDirectory) => {
+  enqueueOpenFile(commandLine, workingDirectory)
 })
 
 app.on('window-all-closed', () => {

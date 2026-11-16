@@ -5,7 +5,6 @@ import {
   insertImageCommand,
   toggleEmphasisCommand,
   toggleInlineCodeCommand,
-  toggleLinkCommand,
   toggleStrongCommand,
   wrapInBlockquoteCommand,
   wrapInBulletListCommand,
@@ -15,6 +14,7 @@ import {
 import { insertTableCommand } from '@milkdown/kit/preset/gfm'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import type { MarkdownCommandId } from './sourceMarkdownCommands'
+import { collectLinkTextMarks, selectionContainsImage } from './wysiwygLinkRange'
 
 const SELECTION_COMMANDS = new Set<MarkdownCommandId>([
   'bold',
@@ -57,25 +57,53 @@ function turnSelectionIntoTaskList(editor: Editor): boolean {
   return changed
 }
 
-function insertLink(editor: Editor): boolean {
-  // milkdown 的 Ctx.get 对未注册 slice 会抛异常（create 前/destroy 后），须 try/catch 兜底
-  let commands, view, schema
+export interface ApplyWysiwygLinkOptions {
+  href: string
+  text: string
+  /** 已有链接或当前选区范围；省略时取当前 ProseMirror 选区。 */
+  range?: { from: number; to: number }
+}
+
+/** 用链接对话框的结果插入或替换链接，并尽量保留原有文本格式。 */
+export function applyWysiwygLink(editor: Editor, options: ApplyWysiwygLinkOptions): boolean {
+  const href = options.href.trim()
+  const text = options.text.trim()
+  if (!href || !text) return false
+
+  let view, schema
   try {
-    commands = editor.ctx.get(commandsCtx)
     view = editor.ctx.get(editorViewCtx)
     schema = editor.ctx.get(schemaCtx)
   } catch {
     return false
   }
-  if (!commands || !view || !schema) return false
-  if (!view.state.selection.empty) {
-    return commands.call(toggleLinkCommand.key, { href: 'https://' })
-  }
-
+  if (!view || !schema) return false
   const link = schema.marks.link
   if (!link) return false
-  const node = schema.text('链接文本', [link.create({ href: 'https://', title: null })])
-  view.dispatch(view.state.tr.replaceSelectionWith(node).scrollIntoView())
+
+  const range = options.range ?? {
+    from: view.state.selection.from,
+    to: view.state.selection.to,
+  }
+  if (selectionContainsImage(view.state.doc, range.from, range.to)) return false
+
+  try {
+    const linkMark = link.create({ href, title: null })
+    const currentText = view.state.doc.textBetween(range.from, range.to, '\n')
+    if (currentText === text) {
+      const transaction = view.state.tr
+        .removeMark(range.from, range.to, link)
+        .addMark(range.from, range.to, linkMark)
+      view.dispatch(transaction.scrollIntoView())
+    } else {
+      const marks = collectLinkTextMarks(view.state.doc, range.from, range.to, link)
+      const node = schema.text(text, [...marks, linkMark])
+      view.dispatch(view.state.tr.replaceWith(range.from, range.to, node).scrollIntoView())
+    }
+  } catch {
+    return false
+  }
+  view.focus()
   return true
 }
 
@@ -127,9 +155,6 @@ export function runWysiwygMarkdownCommand(editor: Editor, command: MarkdownComma
     case 'heading-4':
     case 'heading-5':
       handled = commands.call(wrapInHeadingCommand.key, Number(command.at(-1)))
-      break
-    case 'insert-link':
-      handled = insertLink(editor)
       break
     case 'insert-image':
       handled = commands.call(insertImageCommand.key, {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { WorkspaceFileEntry } from '../../../../shared/types'
 import { buildWorkspaceTree, mergeWorkspaceTree, type WorkspaceFsNode } from '../../utils/workspaceTree'
+import { openNewWindow } from '../../utils/windowActions'
 
 const EMOJI_MAP: Record<string, string> = {
   '.json': '📋',
@@ -37,6 +38,7 @@ function WorkspaceNodes({
   toggleDir,
   currentFile,
   onOpenFile,
+  onContextFile,
 }: {
   nodes: WorkspaceFsNode[]
   depth: number
@@ -44,6 +46,7 @@ function WorkspaceNodes({
   toggleDir: (pathKey: string) => void
   currentFile: string | null
   onOpenFile: (path: string) => void
+  onContextFile: (path: string, x: number, y: number) => void
 }) {
   return (
     <div className="flex flex-col gap-[2px]">
@@ -56,6 +59,7 @@ function WorkspaceNodes({
               key={node.path}
               type="button"
               onClick={() => void onOpenFile(node.path)}
+              onContextMenu={(event) => { event.preventDefault(); onContextFile(node.path, event.clientX, event.clientY) }}
               className={`w-full text-left rounded-[var(--radius-sm)] text-app-sm cursor-pointer transition-colors duration-[var(--transition-fast)] flex items-center gap-2 font-[var(--font-ui)] ${
                 isActive
                   ? 'bg-[var(--selection)] text-[var(--text-primary)]'
@@ -101,6 +105,7 @@ function WorkspaceNodes({
                 toggleDir={toggleDir}
                 currentFile={currentFile}
                 onOpenFile={onOpenFile}
+                onContextFile={onContextFile}
               />
             )}
           </div>
@@ -122,6 +127,15 @@ export function WorkspaceTreePanel({
   const [tree, setTree] = useState<WorkspaceFsNode[]>([])
   const seenPaths = useRef(new Set<string>())
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [contextFile, setContextFile] = useState<{ path: string; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (!contextFile) return
+    const dismiss = () => setContextFile(null)
+    window.addEventListener('click', dismiss)
+    window.addEventListener('blur', dismiss)
+    return () => { window.removeEventListener('click', dismiss); window.removeEventListener('blur', dismiss) }
+  }, [contextFile])
 
   /** 切换工作区时清空展开状态；默认全部折叠，避免一次展开过多目录 */
   useEffect(() => {
@@ -168,7 +182,11 @@ export function WorkspaceTreePanel({
         toggleDir={toggleDir}
         currentFile={currentFile}
         onOpenFile={onOpenFile}
+        onContextFile={(path, x, y) => setContextFile({ path, x, y })}
       />
+      {contextFile && <div style={{ position: 'fixed', left: contextFile.x, top: contextFile.y, zIndex: 200 }} className="rounded border border-[var(--border-visible)] bg-[var(--bg-card)] shadow-lg">
+        <button type="button" className="px-3 py-2 text-app-sm text-[var(--text-primary)] hover:bg-[var(--hover)]" onClick={() => { const filePath = contextFile.path; setContextFile(null); void openNewWindow(filePath) }}>在新窗口打开</button>
+      </div>}
       {scanStatus === 'scanning' && <p className="text-app-xs text-[var(--text-hint)] px-1 pt-1">正在扫描…</p>}
     </>
   )

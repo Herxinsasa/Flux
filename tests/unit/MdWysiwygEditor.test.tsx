@@ -129,7 +129,9 @@ describe('MdWysiwygEditor', () => {
       expect(root?.style.transform).toBe('')
       expect(root?.style.zoom).toBe(`${contentZoom}`)
       expect(root?.style.getPropertyValue('--content-zoom')).toBe(`${contentZoom}`)
-      expect(root?.style.getPropertyValue('--font-code-size')).toBe('13px')
+      expect(
+        Number.parseFloat(root!.style.getPropertyValue('--font-code-size')) * contentZoom,
+      ).toBeCloseTo(14)
     },
   )
 

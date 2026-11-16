@@ -13,7 +13,7 @@ import {
   FluxFileError,
   getFileInfo,
   readFile,
-  readText,
+  readTextAsync,
   saveText,
   writeTextLegacy,
   detectEncoding,
@@ -27,6 +27,8 @@ import {
 } from '../services/workspace-service'
 import fs from 'fs'
 import path from 'path'
+import type { WindowCoordinator } from '../window-coordinator'
+import type { DocumentCredential } from '../../shared/types'
 
 export function isValidFilePath(filePath: unknown): filePath is string {
   return typeof filePath === 'string' && filePath.length > 0
@@ -36,7 +38,7 @@ export function isOptionalWorkspaceRoot(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
-export function registerFileHandlers(): void {
+export function registerFileHandlers(coordinator?: WindowCoordinator): void {
   const {
     FILE_OPEN,
     FILE_CREATE,
@@ -64,9 +66,9 @@ export function registerFileHandlers(): void {
   }
 
   // ── FILE_OPEN ── open native file dialog, return selected path ──
-  ipcMain.handle(FILE_OPEN, async (): Promise<IpcResponse<string | null>> => {
+  ipcMain.handle(FILE_OPEN, async (event): Promise<IpcResponse<string | null>> => {
     try {
-      const window = BrowserWindow.getFocusedWindow()
+      const window = BrowserWindow.fromWebContents(event.sender)
       const result = await dialog.showOpenDialog(window!, {
         title: 'Open File',
         properties: ['openFile'],
@@ -91,9 +93,16 @@ export function registerFileHandlers(): void {
   // ── FILE_CREATE ── choose save path/name/type then create an empty file ──
   ipcMain.handle(
     FILE_CREATE,
-    async (): Promise<IpcResponse<string | null> & { cancelled?: boolean }> => {
+    async (event, credential?: DocumentCredential): Promise<IpcResponse<string | null> & { cancelled?: boolean }> => {
       try {
-        const window = BrowserWindow.getFocusedWindow()
+        if (credential !== undefined) {
+          if (!credential || typeof credential.filePath !== 'string' || !path.isAbsolute(credential.filePath) || typeof credential.reservationId !== 'string' || !coordinator?.hasReservation(event.sender.id, credential)) {
+            return { success: false, code: 'INVALID_DATA', error: 'Invalid document reservation' }
+          }
+          fs.writeFileSync(credential.filePath, '', { encoding: 'utf8', flag: 'wx' })
+          return { success: true, data: credential.filePath }
+        }
+        const window = BrowserWindow.fromWebContents(event.sender)
         const result = await dialog.showSaveDialog(window!, {
           title: '新建文件',
           defaultPath: 'untitled.md',
@@ -113,17 +122,10 @@ export function registerFileHandlers(): void {
         }
 
         const targetPath = path.resolve(result.filePath)
-        const dir = path.dirname(targetPath)
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true })
-        }
-
-        // 用户在保存对话框确认“替换”后，需要真正覆盖为一个空文件。
-        fs.writeFileSync(targetPath, '', 'utf-8')
-
         return { success: true, data: targetPath }
       } catch (err) {
-        return { success: false, error: String(err) }
+        const code = (err as NodeJS.ErrnoException).code
+        return { success: false, code: code === 'EEXIST' ? 'VERSION_CONFLICT' : code === 'EACCES' || code === 'EPERM' ? 'PERMISSION_DENIED' : 'IO_ERROR', error: String(err) }
       }
     },
   )
@@ -203,7 +205,7 @@ export function registerFileHandlers(): void {
       if (!isValidFilePath(filePath)) {
         return { success: false, error: 'Invalid file path', code: 'INVALID_DATA' }
       }
-      return { success: true, data: readText(filePath) }
+      return { success: true, data: await readTextAsync(filePath) }
     } catch (error) {
       return toErrorResponse(error)
     }

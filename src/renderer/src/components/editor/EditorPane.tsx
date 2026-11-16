@@ -27,6 +27,8 @@ import {
   setReviewDecorations,
 } from '../../editor/codemirror/reviewDecorations'
 import { MarkdownContextMenu } from './MarkdownContextMenu'
+import { LinkDialog } from './LinkDialog'
+import { findMarkdownImageAt, findMarkdownLinkAt, formatMarkdownLink } from './markdownLink'
 import { createSourceMarkdownEdit, type MarkdownCommandId } from './sourceMarkdownCommands'
 import { registerEditorDraftBuffer } from '../../utils/editorDraftBuffer'
 import { WysiwygReviewComposer } from './WysiwygReviewComposer'
@@ -127,6 +129,14 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
     y: number
     anchor: ReviewAnchor
   } | null>(null)
+  const [linkDialog, setLinkDialog] = useState<{
+    mode: 'insert' | 'edit'
+    href: string
+    text: string
+    from: number
+    to: number
+  } | null>(null)
+  const [linkError, setLinkError] = useState('')
   const { format, compact, error, clearError } = useJsonFormat()
 
   const closeContextMenu = useCallback(() => {
@@ -254,6 +264,25 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
       composeReview()
       return
     }
+    if (command === 'insert-link') {
+      const content = editorView.state.doc.toString()
+      const selection = editorView.state.selection.main
+      const existing = findMarkdownLinkAt(content, selection.from, selection.to)
+      // 链接文本含图片时无法安全往返；图片语法内部也不允许插入链接。
+      if (existing?.editable === false) return
+      if (!existing && findMarkdownImageAt(content, selection.from, selection.to)) return
+      const selectedText =
+        selection.from === selection.to ? '' : content.slice(selection.from, selection.to)
+      setLinkError('')
+      setLinkDialog({
+        mode: existing ? 'edit' : 'insert',
+        href: existing?.href || 'https://',
+        text: existing?.text || selectedText || '链接文本',
+        from: existing?.from ?? selection.from,
+        to: existing?.to ?? selection.to,
+      })
+      return
+    }
     const selection = editorView.state.selection.main
       const edit = createSourceMarkdownEdit(
         command,
@@ -270,6 +299,40 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
     },
     [composeReview, editorView, quoteSelectionToChat],
   )
+
+  const submitLink = useCallback(
+    (value: { href: string; text: string }) => {
+      if (!editorView || !linkDialog) return
+      const content = editorView.state.doc.toString()
+      const currentLink = findMarkdownLinkAt(content, linkDialog.from, linkDialog.to)
+      if (
+        currentLink?.editable === false ||
+        findMarkdownImageAt(content, linkDialog.from, linkDialog.to)
+      ) {
+        setLinkError('不能在此位置插入链接')
+        return
+      }
+      const insert = formatMarkdownLink(value.text, value.href)
+      try {
+        editorView.dispatch({
+          changes: { from: linkDialog.from, to: linkDialog.to, insert },
+          selection: { anchor: linkDialog.from + insert.length },
+        })
+      } catch {
+        setLinkError('插入链接失败，请重试')
+        return
+      }
+      editorView.focus()
+      setLinkDialog(null)
+      setLinkError('')
+    },
+    [editorView, linkDialog],
+  )
+
+  useEffect(() => {
+    setLinkDialog(null)
+    setLinkError('')
+  }, [currentFile])
 
   useEffect(() => {
     if (mode !== 'markdown' || isReadOnly) return
@@ -631,7 +694,7 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
         overflow: 'hidden',
         background: 'var(--bg-viewer)',
         position: 'relative',
-        fontSize: `${fontSize + 3}px`,
+        fontSize: `${mode === 'markdown' ? fontSize : fontSize + 3}px`,
         fontFamily: 'var(--font-editor)',
       }}
     >
@@ -764,7 +827,7 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
           style={{ color: 'var(--text-hint)', fontSize: '11px' }}
           title="Ctrl+Plus 放大，Ctrl+Minus 缩小，Ctrl+0 重置"
         >
-          字体 {fontSize + 3}px
+          字体 {mode === 'markdown' ? fontSize : fontSize + 3}px
         </span>
       </div>
 
@@ -799,6 +862,23 @@ export function EditorPane({ hideFileBar = false, onEditorViewChange }: EditorPa
           if (saved) setReviewComposer(null)
           return saved
         }}
+        />
+      )}
+
+      {linkDialog && (
+        <LinkDialog
+          open
+          mode={linkDialog.mode}
+          initialHref={linkDialog.href}
+          initialText={linkDialog.text}
+          onCancel={() => {
+            setLinkDialog(null)
+            setLinkError('')
+            editorView?.focus()
+          }}
+          onSubmit={submitLink}
+          submitError={linkError}
+          onClearSubmitError={() => setLinkError('')}
         />
       )}
 
